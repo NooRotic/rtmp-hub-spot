@@ -1,0 +1,157 @@
+import React, { useEffect, useRef, useState } from 'react';
+
+// For the Electron Admin environment
+const isElectron = navigator.userAgent.toLowerCase().indexOf(' electron/') > -1;
+const ipc = isElectron ? (window as any).require('electron').ipcRenderer : null;
+
+interface VideoFeedProps {
+  stream?: MediaStream;
+  label: string;
+  isLocal?: boolean;
+  isVideoEnabled?: boolean;
+  setIsVideoEnabled?: (val: boolean) => void;
+  isAudioEnabled?: boolean;
+  setIsAudioEnabled?: (val: boolean) => void;
+}
+
+const VideoFeed: React.FC<VideoFeedProps> = ({ 
+  stream, label, isLocal, 
+  isVideoEnabled = true, setIsVideoEnabled, 
+  isAudioEnabled = true, setIsAudioEnabled 
+}) => {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const [isPiping, setIsPiping] = useState(false);
+  const [hwAccel, setHwAccel] = useState('none');
+
+  useEffect(() => {
+    const savedSize = localStorage.getItem(`hub-size-${label}`);
+    if (savedSize && containerRef.current) {
+      const { width, height } = JSON.parse(savedSize);
+      containerRef.current.style.width = width;
+      containerRef.current.style.height = height;
+    }
+
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        localStorage.setItem(`hub-size-${label}`, JSON.stringify({ 
+          width: `${entry.target.clientWidth}px`, 
+          height: `${entry.target.clientHeight}px` 
+        }));
+      }
+    });
+
+    if (containerRef.current) observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, [label]);
+
+  useEffect(() => {
+    if (videoRef.current && stream) {
+      videoRef.current.srcObject = stream;
+    }
+  }, [stream]);
+
+  const toggleVirtualCam = () => {
+    if (!ipc || !stream) return;
+
+    if (isPiping) {
+      mediaRecorderRef.current?.stop();
+      ipc.send('ffmpeg-pipe-stop');
+      setIsPiping(false);
+    } else {
+      const streamKey = `feed-${label.replace(/\s+/g, '-').toLowerCase()}`;
+      ipc.send('ffmpeg-pipe-start', { hwAccel, streamKey });
+      const recorder = new MediaRecorder(stream, { mimeType: 'video/webm; codecs=vp8' });
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          event.data.arrayBuffer().then((buffer) => {
+            ipc.send('ffmpeg-pipe-chunk', buffer);
+          });
+        }
+      };
+      recorder.start(100); // 100ms chunks
+      mediaRecorderRef.current = recorder;
+      setIsPiping(true);
+    }
+  };
+
+  useEffect(() => {
+    if (!ipc) return;
+    const handleError = (_: any, msg: string) => {
+      console.error('[FFMPEG Error]', msg);
+      setIsPiping(false);
+    };
+    ipc.on('ffmpeg-error', handleError);
+    return () => {
+      ipc.removeListener('ffmpeg-error', handleError);
+    };
+  }, []);
+
+  return (
+    <div ref={containerRef} className="window resizable" style={{ display: 'inline-block', margin: '5px' }}>
+      <div className="window-title">
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <span>{label} {isLocal ? '(Self)' : ''}</span>
+          {isLocal && setIsVideoEnabled && setIsAudioEnabled && (
+            <div style={{ display: 'flex', gap: '2px' }}>
+              <button 
+                className="btn" 
+                onClick={() => setIsVideoEnabled(!isVideoEnabled)}
+                style={{ padding: '0 4px', fontSize: '9px', backgroundColor: isVideoEnabled ? '#cfcfcf' : '#ff9999' }}
+              >
+                {isVideoEnabled ? 'HIDE' : 'SHOW'}
+              </button>
+              <button 
+                className="btn" 
+                onClick={() => setIsAudioEnabled(!isAudioEnabled)}
+                style={{ padding: '0 4px', fontSize: '9px', backgroundColor: isAudioEnabled ? '#cfcfcf' : '#ff9999' }}
+              >
+                {isAudioEnabled ? 'MUTE' : 'TALK'}
+              </button>
+            </div>
+          )}
+        </div>
+        {isElectron && (
+          <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+            <select 
+              className="inset-field" 
+              style={{ fontSize: '9px', padding: '0' }}
+              value={hwAccel}
+              onChange={(e) => setHwAccel(e.target.value)}
+            >
+              <option value="none">Soft</option>
+              <option value="nvidia">NVENC</option>
+              <option value="amd">AMF</option>
+              <option value="intel">QSV</option>
+            </select>
+            <button className="btn" onClick={toggleVirtualCam} style={{ padding: '0 4px', fontSize: '9px' }}>
+              {isPiping ? 'STOP' : 'BROADCAST'}
+            </button>
+          </div>
+        )}
+      </div>
+      <div className="window-content" style={{ padding: '2px', height: 'calc(100% - 25px)', position: 'relative' }}>
+        {isPiping && (
+          <div style={{ 
+            position: 'absolute', top: 5, left: 5, right: 5, zIndex: 10,
+            backgroundColor: 'rgba(0,0,0,0.7)', color: '#0f0', fontSize: '8px', padding: '2px'
+          }}>
+            RTMP: rtmp://localhost:1935/live/feed-{label.replace(/\s+/g, '-').toLowerCase()}
+          </div>
+        )}
+        <video
+          ref={videoRef}
+          autoPlay
+          muted={true} // Hard-mute for now to guarantee autoplay works every time
+          playsInline
+          style={{ width: '100%', height: '100%', backgroundColor: '#000', display: 'block', objectFit: 'cover' }}
+          onPlay={() => console.log(`[VideoFeed] Playing feed: ${label}`)}
+        />
+      </div>
+      <div className="resizable-handle"></div>
+    </div>
+  );
+};
+
+export default VideoFeed;

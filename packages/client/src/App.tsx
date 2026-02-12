@@ -1,0 +1,386 @@
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useWebRTC } from './hooks/useWebRTC';
+import { useMediaDevices } from './hooks/useMediaDevices';
+import VideoFeed from './components/VideoFeed';
+import GridView from './components/GridView';
+import ChatBox from './components/ChatBox';
+
+// Effect for persistence
+export function usePersistence(selectedVideo: string, selectedAudio: string) {
+  useEffect(() => {
+    localStorage.setItem('hub-video-device', selectedVideo);
+  }, [selectedVideo]);
+
+  useEffect(() => {
+    localStorage.setItem('hub-audio-device', selectedAudio);
+  }, [selectedAudio]);
+}
+
+// Custom hook for resizable sidebar
+function useResizableSidebar(initialWidth: number) {
+  const [width, setWidth] = useState<number>(() => {
+    const saved = localStorage.getItem('hub-sidebar-width');
+    return saved ? parseInt(saved, 10) : initialWidth;
+  });
+  const isResizing = useRef(false);
+
+  const startResizing = useCallback(() => {
+    isResizing.current = true;
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', stopResizing);
+    document.body.style.cursor = 'col-resize';
+  }, []);
+
+  const stopResizing = useCallback(() => {
+    isResizing.current = false;
+    document.removeEventListener('mousemove', handleMouseMove);
+    document.removeEventListener('mouseup', stopResizing);
+    document.body.style.cursor = 'default';
+  }, []);
+
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (!isResizing.current) return;
+    const newWidth = e.clientX;
+    if (newWidth > 150 && newWidth < 600) {
+      setWidth(newWidth);
+      localStorage.setItem('hub-sidebar-width', newWidth.toString());
+    }
+  }, []);
+
+  return { width, startResizing };
+}
+
+function App() {
+  const isElectron = navigator.userAgent.toLowerCase().indexOf(' electron/') > -1;
+  const ipc = isElectron ? (window as any).electron.ipcRenderer : null;
+
+  const { width: sidebarWidth, startResizing } = useResizableSidebar(250);
+
+  const [selectedVideo, setSelectedVideo] = useState<string>(localStorage.getItem('hub-video-device') || '');
+  const [selectedAudio, setSelectedAudio] = useState<string>(localStorage.getItem('hub-audio-device') || '');
+  const [userName, setUserName] = useState<string>(localStorage.getItem('hub-username') || '');
+  const [adminCamActive, setAdminCamActive] = useState<boolean>(false);
+  const [showGrid, setShowGrid] = useState<boolean>(isElectron); // Default ON for admin
+  const [gridStream, setGridStream] = useState<MediaStream | null>(null);
+  const [isGridShared, setIsGridShared] = useState<boolean>(false);
+  
+  // Broadcast Quality Settings
+  const [broadcastBitrate, setBroadcastBitrate] = useState<string>('2500k');
+  const [broadcastPreset, setBroadcastPreset] = useState<string>('ultrafast');
+  const [hwAccel, setHwAccel] = useState<string>('none');
+  
+  usePersistence(selectedVideo, selectedAudio);
+  
+  const { videoDevices, audioDevices } = useMediaDevices();
+
+  const currentVideoDevice = videoDevices.find(d => d.deviceId === selectedVideo);
+  const cameraLabel = currentVideoDevice?.label || (isElectron ? 'Admin Hub' : 'Default Camera');
+  const broadcastLabel = isGridShared ? 'Composite Grid' : cameraLabel;
+
+  const { serverStatus, isConnected, socketStatus, peers, userStream, isVideoEnabled, setIsVideoEnabled, isAudioEnabled, setIsAudioEnabled, chatMessages, sendMessage, disconnect, connect } = useWebRTC(userName, {
+    videoId: (isElectron ? (adminCamActive ? selectedVideo : undefined) : (selectedVideo || undefined)),
+    audioId: (isElectron ? (adminCamActive ? selectedAudio : undefined) : (selectedAudio || undefined)),
+    userName: userName,
+    cameraLabel: broadcastLabel,
+    overrideStream: isGridShared ? gridStream : null
+  });
+
+  const handleConnect = () => {
+    if (!userName.trim()) {
+      alert('Please enter your name before connecting.');
+      return;
+    }
+    localStorage.setItem('hub-username', userName);
+    connect();
+  };
+
+  const refreshTelemetry = () => {
+    if (ipc) {
+      ipc.send('telemetry-refresh');
+    }
+  };
+
+  const allStreams = useMemo(() => [
+    ...(userStream && (isElectron ? (adminCamActive || isGridShared) : true) ? [{ 
+      id: 'local', 
+      stream: userStream, 
+      label: `${isElectron ? 'Admin Hub' : userName} - ${broadcastLabel}` 
+    }] : []),
+    ...peers.filter(p => p.stream).map(p => ({ 
+      id: p.id, 
+      stream: p.stream as MediaStream, 
+      label: p.name 
+    }))
+  ], [userStream, adminCamActive, isElectron, userName, broadcastLabel, peers]);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
+      {/* Draggable Title Bar (Electron Only) */}
+      {isElectron && (
+        <div className="app-title-bar">
+          <div className="app-title-text">
+            <div style={{ width: '16px', height: '16px', backgroundColor: '#000080', border: '1px solid #fff' }}></div>
+            <span>RTMP HUB SPOT - ADMINISTRATOR</span>
+          </div>
+          <div className="window-controls">
+            <button className="window-control-btn" onClick={() => (window as any).electron.ipcRenderer.send('window-minimize')}>0</button>
+            <button className="window-control-btn" onClick={() => (window as any).electron.ipcRenderer.send('window-close')}>r</button>
+          </div>
+        </div>
+      )}
+      
+      {/* Top Status Bar */}
+      <div className="status-bar">
+        <div className="status-item">
+          <div className={`status-led ${socketStatus === 'connected' ? 'led-on' : socketStatus === 'connecting' ? 'led-warn' : 'led-off'}`}></div>
+          Hub: {socketStatus.toUpperCase()}
+        </div>
+        <div className="status-item">
+          <div className={`status-led ${isConnected ? 'led-on' : 'led-off'}`}></div>
+          Signaling: {isConnected ? 'ACTIVE' : 'IDLE'}
+        </div>
+        {serverStatus && (
+          <>
+            <div className="status-item">| Local: {serverStatus.local}</div>
+            <div className="status-item">| Network: {serverStatus.public}</div>
+            <div className="status-item">| Clients: {serverStatus.clientCount}</div>
+            <div className="status-item">| RTMP Players: {serverStatus.rtmpCount}</div>
+          </>
+        )}
+      </div>
+
+      <div className="main-layout" style={{ flex: 1, display: 'flex' }}>
+        {/* Side Panel (Admin Only) */}
+        {isElectron && (
+          <>
+            <div className="side-panel" style={{ width: `${sidebarWidth}px`, display: 'flex', flexDirection: 'column' }}>
+              <div style={{ flex: 1, overflowY: 'auto', paddingRight: '5px' }}>
+                <h3 style={{ marginTop: 0, borderBottom: '1px solid #808080' }}>System Status</h3>
+                <div className="inset-field" style={{ marginBottom: '10px', fontSize: '10px' }}>
+                  <div><strong>NMS Server</strong>: Listening (1935/8000)</div>
+                  <div><strong>WebRTC Bridge</strong>: Ready</div>
+                  <div><strong>Virtual Cam</strong>: {allStreams.length > 0 ? 'Feeds Available' : 'No Input'}</div>
+                  <div><strong>Active RTMP</strong>: {serverStatus?.rtmpCount || 0} Viewer(s)</div>
+                </div>
+
+                <h3 style={{ borderBottom: '1px solid #808080' }}>Connected Clients</h3>
+                <div className="inset-field" style={{ height: '120px', overflowY: 'auto', fontSize: '10px', marginBottom: '10px' }}>
+                  {peers.length === 0 ? 'No clients connected.' : peers.map(p => (
+                    <div key={p.id} style={{ borderBottom: '1px solid #eee', padding: '2px 0' }}>
+                      ⏺ {p.name || p.id.slice(0, 8)} 
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #808080' }}>
+                  <h3 style={{ margin: 0 }}>RTMP Viewers</h3>
+                  <button className="btn" style={{ fontSize: '9px', padding: '0 4px' }} onClick={refreshTelemetry}>REFRESH</button>
+                </div>
+                
+                <div className="inset-field" style={{ height: '220px', overflowY: 'auto', padding: 0, marginBottom: '10px' }}>
+                  {!serverStatus?.rtmpSessions || serverStatus.rtmpSessions.length === 0 ? (
+                    <div style={{ padding: '10px', fontSize: '10px' }}>No RTMP viewers.</div>
+                  ) : (
+                    <table className="telemetry-table">
+                      <thead>
+                        <tr>
+                          <th>IP/Source</th>
+                          <th>Path</th>
+                          <th>Stats</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {serverStatus.rtmpSessions.map(s => (
+                          <tr key={s.id}>
+                            <td style={{ fontWeight: 'bold' }}>{s.ip.replace('::ffff:', '')}</td>
+                            <td style={{ color: '#666' }}>{s.path.split('/').pop()}</td>
+                            <td>
+                              <div className="metric-vibrant">⏱ {s.uptime}s</div>
+                              <div>📊 {(s.bitrate / 1024 / 1024).toFixed(2)} Mbps</div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+
+                <div className="help-box">
+                  <strong>What is "SET V-CAM"?</strong>
+                  <p>This button routes the specific user's video feed into a virtual camera device on your system.</p>
+                  <strong>Rendering Options:</strong>
+                  <ul>
+                    <li>Soft: CPU encoding (Safe)</li>
+                    <li>NVENC: NVIDIA GPU (Fast)</li>
+                    <li>AMF/QSV: AMD/Intel (Fast)</li>
+                  </ul>
+                </div>
+
+                <h3 style={{ borderBottom: '1px solid #808080', marginTop: '10px' }}>Broadcast Settings</h3>
+                <div className="inset-field" style={{ fontSize: '10px', padding: '10px', marginBottom: '10px' }}>
+                  <div style={{ marginBottom: '8px' }}>
+                    <label style={{ display: 'block', marginBottom: '2px' }}>Target Bitrate:</label>
+                    <select 
+                      className="inset-field" 
+                      style={{ width: '100%' }}
+                      value={broadcastBitrate} 
+                      onChange={(e) => setBroadcastBitrate(e.target.value)}
+                    >
+                      <option value="1500k">1500k (Optimized)</option>
+                      <option value="2500k">2500k (Standard)</option>
+                      <option value="5000k">5000k (High Quality)</option>
+                    </select>
+                  </div>
+
+                  <div style={{ marginBottom: '8px' }}>
+                    <label style={{ display: 'block', marginBottom: '2px' }}>FFmpeg Preset:</label>
+                    <select 
+                      className="inset-field" 
+                      style={{ width: '100%' }}
+                      value={broadcastPreset} 
+                      onChange={(e) => setBroadcastPreset(e.target.value)}
+                    >
+                      <option value="ultrafast">Ultrafast (Low CPU)</option>
+                      <option value="superfast">Superfast</option>
+                      <option value="veryfast">Veryfast</option>
+                      <option value="faster">Faster</option>
+                      <option value="fast">Fast</option>
+                      <option value="medium">Medium (Better Quality)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', marginBottom: '2px' }}>Encoder Accel:</label>
+                    <select 
+                      className="inset-field" 
+                      style={{ width: '100%' }}
+                      value={hwAccel} 
+                      onChange={(e) => setHwAccel(e.target.value)}
+                    >
+                      <option value="none">Software (x264)</option>
+                      <option value="nvidia">NVIDIA NVENC</option>
+                      <option value="amd">AMD AMF</option>
+                      <option value="intel">Intel QSV</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+              <ChatBox messages={chatMessages} onSendMessage={sendMessage} />
+            </div>
+            <div className="divider" onMouseDown={startResizing}></div>
+          </>
+        )}
+
+        {/* Main Content Area */}
+        <div style={{ flex: 1, padding: '20px', overflowY: 'auto' }}>
+          <div className="window">
+            <div className="window-title">
+              <span>{isElectron ? 'Admin Video Hub' : 'Client Participant Portal'}</span>
+            </div>
+            <div className="window-content">
+              {(isElectron || !isElectron) && (
+                <div className="inset-field" style={{ marginBottom: '15px' }}>
+                  <div style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
+                    <div>
+                      <label>Camera: </label>
+                      <select className="inset-field" value={selectedVideo} onChange={(e) => setSelectedVideo(e.target.value)}>
+                        <option value="">{isElectron ? 'Off' : 'Default Camera'}</option>
+                        {videoDevices.map(d => <option key={d.deviceId} value={d.deviceId}>{d.label || 'Camera'}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label>Mic: </label>
+                      <select className="inset-field" value={selectedAudio} onChange={(e) => setSelectedAudio(e.target.value)}>
+                        <option value="">{isElectron ? 'Off' : 'Default Mic'}</option>
+                        {audioDevices.map(d => <option key={d.deviceId} value={d.deviceId}>{d.label || 'Microphone'}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  {isElectron ? (
+                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                      <button 
+                        className="btn" 
+                        onClick={() => setAdminCamActive(!adminCamActive)} 
+                        style={{ padding: '2px 20px', backgroundColor: adminCamActive ? '#ff000022' : '#00ff0022' }}
+                      >
+                        {adminCamActive ? 'STOP ADMIN CAMERA' : 'START ADMIN CAMERA'}
+                      </button>
+                      <button 
+                        className="btn" 
+                        onClick={() => setShowGrid(!showGrid)} 
+                        style={{ padding: '2px 20px', backgroundColor: showGrid ? '#00ff0022' : '#cfcfcf' }}
+                      >
+                        {showGrid ? 'DISABLE GRID VIEW' : 'ENABLE GRID VIEW'}
+                      </button>
+                      <button 
+                        className="btn" 
+                        onClick={() => setIsGridShared(!isGridShared)} 
+                        style={{ padding: '2px 20px', backgroundColor: isGridShared ? '#ff000022' : '#00ff0022' }}
+                      >
+                        {isGridShared ? 'STOP SHARING GRID' : 'SHARE GRID TO ALL'}
+                      </button>
+                      <span style={{ fontSize: '10px', color: '#666' }}> (Visible to all connected clients)</span>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                      <input 
+                        className="inset-field" 
+                        type="text" 
+                        value={userName} 
+                        onChange={(e) => setUserName(e.target.value)} 
+                        placeholder="Required: Enter your name" 
+                        disabled={isConnected} 
+                        style={{ border: !userName.trim() ? '1px solid #ff0000' : 'none' }}
+                      />
+                      <button 
+                        className="btn" 
+                        onClick={isConnected ? disconnect : handleConnect} 
+                        style={{ padding: '2px 20px', backgroundColor: isConnected ? '#ff000022' : '#00ff0022' }}
+                        disabled={!userName.trim()}
+                      >
+                        {isConnected ? 'DISCONNECT' : 'CONNECT TO HUB'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+                {userStream && (
+                  <VideoFeed 
+                    stream={userStream} 
+                    label={`${isElectron ? 'Admin Hub' : userName} (Self)`} 
+                    isLocal 
+                    isVideoEnabled={isVideoEnabled}
+                    setIsVideoEnabled={setIsVideoEnabled}
+                    isAudioEnabled={isAudioEnabled}
+                    setIsAudioEnabled={setIsAudioEnabled}
+                  />
+                )}
+                {peers.map((peer) => (
+                  <VideoFeed key={peer.id} stream={peer.stream} label={peer.name || `User ${peer.id.slice(0, 4)}`} />
+                ))}
+              </div>
+
+              {showGrid && allStreams.length > 0 && (
+                <GridView 
+                  streams={isGridShared ? allStreams.filter((s: any) => s.id !== 'local') : allStreams} 
+                  onStreamUpdate={setGridStream} 
+                  broadcastSettings={{
+                    bitrate: broadcastBitrate,
+                    preset: broadcastPreset,
+                    hwAccel: hwAccel
+                  }}
+                />
+              )}
+              
+              {!isElectron && <ChatBox messages={chatMessages} onSendMessage={sendMessage} />}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default App;

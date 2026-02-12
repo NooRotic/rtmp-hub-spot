@@ -1,0 +1,38 @@
+{
+  "name": "rtmp-hub-spot",
+  "private": true,
+  "version": "1.0.0",
+  "description": "RTMP/WebRTC client-server system with retro WinNT UI",
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "dev": "concurrently \"npm run dev -w client\" \"wait-on http://localhost:4000 && npm run dev -w server\"",
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "typescript": "^5.3.3",
+    "vitest": "^1.2.2",
+    "wait-on": "^9.0.3"
+  },
+  "dependencies": {
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@types/simple-peer": "^9.11.9",
+    "@types/socket.io-client": "^1.4.36",
+    "@vitejs/plugin-react": "^5.1.4",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "simple-peer": "^9.11.1",
+    "socket.io-client": "^4.8.3",
+    "vite": "^7.3.1"
+  }
+}

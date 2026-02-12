@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RTMP Hub Spot - Client</title>
+    <script>
+      window.global = window;
+      window.process = { 
+        env: {}, 
+        nextTick: (fn) => setTimeout(fn, 0),
+        listenerCount: () => 0, // for simple-peer
+        on: () => {},
+        removeListener: () => {}
+      };
+      window.util = { inspect: () => ({}), inherits: () => ({}) };
+      // Buffer fallback
+      if (typeof window.Buffer === 'undefined') {
+        window.Buffer = { isBuffer: () => false };
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
