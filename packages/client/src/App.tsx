@@ -51,8 +51,13 @@ function useResizableSidebar(initialWidth: number) {
 }
 
 function App() {
-  const isElectron = navigator.userAgent.toLowerCase().indexOf(' electron/') > -1;
-  const ipc = isElectron ? (window as any).electron.ipcRenderer : null;
+  const isElectron = useMemo(() => {
+    return typeof window !== 'undefined' && 
+           typeof (window as any).electron !== 'undefined' && 
+           navigator.userAgent.toLowerCase().indexOf(' electron/') > -1;
+  }, []);
+
+  const ipc = isElectron ? (window as any).electron?.ipcRenderer : null;
 
   const { width: sidebarWidth, startResizing } = useResizableSidebar(250);
 
@@ -123,8 +128,8 @@ function App() {
             <span>RTMP HUB SPOT - ADMINISTRATOR</span>
           </div>
           <div className="window-controls">
-            <button className="window-control-btn" onClick={() => (window as any).electron.ipcRenderer.send('window-minimize')}>0</button>
-            <button className="window-control-btn" onClick={() => (window as any).electron.ipcRenderer.send('window-close')}>r</button>
+            <button className="window-control-btn" onClick={() => (window as any).electron?.ipcRenderer?.send('window-minimize')}>0</button>
+            <button className="window-control-btn" onClick={() => (window as any).electron?.ipcRenderer?.send('window-close')}>r</button>
           </div>
         </div>
       )}

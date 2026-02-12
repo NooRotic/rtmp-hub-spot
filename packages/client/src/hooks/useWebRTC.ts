@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import io from 'socket.io-client';
 import Peer from 'simple-peer';
 
-export const isElectron = navigator.userAgent.toLowerCase().indexOf(' electron/') > -1;
+export const isElectron = typeof window !== 'undefined' && 
+                          typeof (window as any).electron !== 'undefined' && 
+                          navigator.userAgent.toLowerCase().indexOf(' electron/') > -1;
 
 export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?: string; userName?: string; cameraLabel?: string; iceServers?: RTCIceServer[]; overrideStream?: MediaStream | null } = {}) => {
   const { videoId, audioId, userName, cameraLabel, iceServers, overrideStream } = options;
