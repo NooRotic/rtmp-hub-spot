@@ -21,6 +21,7 @@
     "@types/react": "^18.2.55",
     "@types/react-dom": "^18.2.19",
     "@types/simple-peer": "^9.11.8",
+    "@vitejs/plugin-basic-ssl": "^2.1.4",
     "@vitejs/plugin-react": "^4.2.1",
     "@vitest/coverage-v8": "^4.0.18",
     "jsdom": "^28.0.0",

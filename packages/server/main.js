@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const os = require('os');
 const https = require('https');
+const selfsigned = require('selfsigned');
 const NodeMediaServer = require('node-media-server');
 const { Server } = require('socket.io');
 const http = require('http');
@@ -10,6 +11,10 @@ const ffmpeg = require('fluent-ffmpeg');
 const ffmpegStatic = require('ffmpeg-static');
 
 ffmpeg.setFfmpegPath(ffmpegStatic);
+
+// Generate self-signed cert for development - this allows Secure Context (Camera Access) over the network
+const attrs = [{ name: 'commonName', value: 'rtmp-hub-spot.local' }];
+const pems = selfsigned.generate(attrs, { days: 365 });
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -24,13 +29,16 @@ function createWindow() {
   });
 
   // In production, load the built index.html
-  // In development, load from Vite
-  win.loadURL('http://localhost:4000'); 
+  // In development, load from Vite (Now using HTTPS port 4443)
+  win.loadURL('https://localhost:4443'); 
   
   app.on('gpu-process-crashed', (event, killed) => {
     console.warn('[ELECTRON] GPU Process Crashed. Killed:', killed);
   });
 }
+
+// Allow self-signed certs in development
+app.commandLine.appendSwitch('ignore-certificate-errors');
 
 const nmsConfig = {
   rtmp: {
@@ -103,7 +111,7 @@ nms.on('postPlay', (id, StreamPath, args) => {
   broadcastStatus();
 });
 
-nms.on('donePlay', (id, StreamPath, args) => {
+nms.on('donePlay', (id) => {
   const data = getSessionData(id);
   const sId = data.id;
   console.log(`[RTMP] Player Disconnected: ${sId}`);
@@ -117,7 +125,10 @@ process.on('uncaughtException', (err) => {
 
 // Signaling & Web Server
 const expressApp = express();
-const server = http.createServer(expressApp);
+const server = https.createServer({
+  key: pems.private,
+  cert: pems.cert
+}, expressApp);
 
 // Serve the React client production build
 const clientPath = path.join(__dirname, '../client/dist');
@@ -128,58 +139,39 @@ expressApp.get('*', (req, res) => {
   res.sendFile(path.join(clientPath, 'index.html'));
 });
 
-async function broadcastStatus(roomId) {
-  const ips = await getIps();
-  const roomUsers = Object.keys(users).filter(id => !roomId || users[id].roomId === roomId);
-  const status = {
-    ...ips,
-    clientCount: roomUsers.length,
-    rtmpCount: rtmpSessions.size,
-    rtmpSessions: Array.from(rtmpSessions.values())
-  };
-  
-  if (roomId) {
-    io.to(roomId).emit('server-status', status);
-  } else {
-    io.emit('server-status', status);
-  }
-}
-
 const io = new Server(server, {
   cors: {
     origin: '*',
+    methods: ["GET", "POST"]
   }
 });
 
 const users = {}; // socket.id -> { name, roomId }
 
 // IP Discovery Helper
-async function getIps() {
-  const interfaces = os.networkInterfaces();
-  const localIps = [];
-  for (const name of Object.keys(interfaces)) {
-    for (const iface of interfaces[name]) {
+async function broadcastStatus(roomId = 'main') {
+  const networkInterfaces = os.networkInterfaces();
+  let localIP = '127.0.0.1';
+  for (const name in networkInterfaces) {
+    for (const iface of networkInterfaces[name]) {
       if (iface.family === 'IPv4' && !iface.internal) {
-        localIps.push(iface.address);
+        localIP = iface.address;
+        break;
       }
     }
   }
 
-  const publicIp = await new Promise((resolve) => {
-    https.get('https://api.ipify.org?format=json', (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        try {
-          resolve(JSON.parse(data).ip);
-        } catch {
-          resolve('Unknown');
-        }
-      });
-    }).on('error', () => resolve('Unknown'));
-  });
+  const sessions = Array.from(rtmpSessions.keys()).map(id => getSessionData(id));
 
-  return { local: localIps[0] || '127.0.0.1', public: publicIp };
+  const status = {
+    local: localIP,
+    public: 'Discovery Active',
+    clientCount: Object.keys(users).length,
+    rtmpCount: rtmpSessions.size,
+    rtmpSessions: sessions
+  };
+  
+  io.emit('server-status', status);
 }
 
 io.on('connection', (socket) => {
@@ -260,7 +252,7 @@ ipcMain.on('telemetry-refresh', () => {
 });
 
 server.listen(4001, '0.0.0.0', () => {
-  console.log('Signaling server listening on 0.0.0.0:4001');
+  console.log('Signaling server listening on HTTPS 0.0.0.0:4001');
 });
 
 let ffmpegProcess = null;

@@ -218,7 +218,7 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
 
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       console.warn('[useWebRTC] getUserMedia not available (possibly insecure origin)');
-      addLocalStatus('Camera access blocked by browser security (Non-HTTPS). See instructions.');
+      addLocalStatus('Camera access blocked. Please ensure you have accepted the HTTPS certificate warning.');
       return;
     }
 

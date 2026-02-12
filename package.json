@@ -10,7 +10,7 @@
     "node": ">=18.0.0"
   },
   "scripts": {
-    "dev": "concurrently \"npm run dev -w client\" \"wait-on http://localhost:4000 && npm run dev -w server\"",
+    "dev": "concurrently \"npm run dev -w client\" \"wait-on https-get://localhost:4443 && npm run dev -w server\"",
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present"
   },
