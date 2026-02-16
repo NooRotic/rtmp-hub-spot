@@ -66,7 +66,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
           event.data.arrayBuffer().then((buffer) => {
-            ipc.send('ffmpeg-pipe-chunk', buffer);
+            ipc.send('ffmpeg-pipe-chunk', { chunk: buffer, streamKey });
           });
         }
       };
@@ -137,7 +137,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
             position: 'absolute', top: 5, left: 5, right: 5, zIndex: 10,
             backgroundColor: 'rgba(0,0,0,0.7)', color: '#0f0', fontSize: '8px', padding: '2px'
           }}>
-            RTMP: rtmp://localhost:1935/live/feed-{label.replace(/\s+/g, '-').toLowerCase()}
+            RTMP: rtmp://{window.location.hostname}/live/feed-{label.replace(/\s+/g, '-').toLowerCase()}
           </div>
         )}
         <video
@@ -147,6 +147,14 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
           playsInline
           style={{ width: '100%', height: '100%', backgroundColor: '#000', display: 'block', objectFit: 'cover' }}
           onPlay={() => console.log(`[VideoFeed] Playing feed: ${label}`)}
+          onLoadedMetadata={(e) => {
+            const video = e.target as HTMLVideoElement;
+            console.log(`[VideoFeed] Metadata loaded: ${video.videoWidth}x${video.videoHeight}`);
+          }}
+          onResize={(e) => {
+             const video = e.target as HTMLVideoElement;
+             console.log(`[VideoFeed] Video resized: ${video.videoWidth}x${video.videoHeight}`);
+          }}
         />
       </div>
       <div className="resizable-handle"></div>

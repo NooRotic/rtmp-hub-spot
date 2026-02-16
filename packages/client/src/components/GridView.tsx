@@ -178,9 +178,9 @@ const GridView: React.FC<GridViewProps> = ({ streams, onStreamUpdate, broadcastS
             const uint8 = new Uint8Array(buffer);
             chunkCount++;
             if (chunkCount < 10) {
-              console.log(`[GridView] Sending chunk #${chunkCount}: ${uint8.length} bytes`);
+              console.log(`[GridView] Sending chunk #${chunkCount}: ${uint8.length} bytes for grid`);
             }
-            ipc.send('ffmpeg-pipe-chunk', uint8);
+            ipc.send('ffmpeg-pipe-chunk', { chunk: uint8, streamKey: 'grid' });
           } catch (err) {
             console.error('[GridView] Error processing chunk:', err);
           }
@@ -208,7 +208,7 @@ const GridView: React.FC<GridViewProps> = ({ streams, onStreamUpdate, broadcastS
       <div className="window-content" style={{ backgroundColor: '#404040', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
         <div style={{ fontSize: '10px', color: '#ccc', marginBottom: '5px' }}>
           {isPiping ? (
-            <span>RTMP LIVE: <strong>rtmp://localhost:1935/live/grid</strong> (Use in OBS/VLC - Not for browsers)</span>
+            <span>RTMP LIVE: <strong style={{color: '#00ff00'}}>rtmp://{window.location.hostname}/live/grid</strong></span>
           ) : (
             <span>Ready to pipe to local RTMP (Source for OBS)</span>
           )}

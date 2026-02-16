@@ -12,9 +12,7 @@ const ffmpegStatic = require('ffmpeg-static');
 
 ffmpeg.setFfmpegPath(ffmpegStatic);
 
-// Generate self-signed cert for development - this allows Secure Context (Camera Access) over the network
-const attrs = [{ name: 'commonName', value: 'rtmp-hub-spot.local' }];
-const pems = selfsigned.generate(attrs, { days: 365 });
+// SSL certificate generation will happen right before server creation
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -41,6 +39,7 @@ function createWindow() {
 app.commandLine.appendSwitch('ignore-certificate-errors');
 
 const nmsConfig = {
+  bind: '0.0.0.0', // Set the bind IP for the entire server
   rtmp: {
     port: 1935,
     host: '0.0.0.0',
@@ -57,202 +56,228 @@ const nmsConfig = {
   basePath: './media' // Ensure a base path exists
 };
 
-const nms = new NodeMediaServer(nmsConfig);
-nms.run();
+// Main entry point to handle async operations
+async function initializeServer() {
+  const nms = new NodeMediaServer(nmsConfig);
+  nms.run();
 
-const rtmpSessions = new Map(); // id -> { ip, path, startTime }
-
-// Helper to extract session data safely
-const getSessionData = (sessionOrId) => {
-  let session = null;
-  
-  if (typeof sessionOrId === 'object' && sessionOrId !== null) {
-    session = sessionOrId;
-  } else if (nms.sessions) {
-    // nms.sessions can be a Map or an Object depending on version
-    if (typeof nms.sessions.get === 'function') {
-      session = nms.sessions.get(sessionOrId);
-    } else {
-      session = nms.sessions[sessionOrId];
-    }
+  console.log('[SSL] Generating self-signed certificates...');
+  const sslAttrs = [{ name: 'commonName', value: 'rtmp-hub-spot.local' }];
+  let sslPems;
+  try {
+    sslPems = await selfsigned.generate(sslAttrs, { days: 365 });
+    console.log('[SSL] Certificates object keys:', Object.keys(sslPems));
+    if (!sslPems.private) throw new Error('sslPems.private is missing');
+    if (!sslPems.cert) throw new Error('sslPems.cert is missing');
+    console.log('[SSL] Certificates generated correctly. Key length:', sslPems.private.length);
+  } catch (sslErr) {
+    console.error('[SSL] Critical error during certificate generation:', sslErr);
+    throw sslErr;
   }
 
-  if (session) {
-    const uptime = Math.floor((Date.now() - (session.startTime || 0)) / 1000);
-    const bytesRead = session.socket?.bytesRead || 0;
-    const bytesWritten = session.socket?.bytesWritten || 0;
-    
-    return {
-      id: session.id || sessionOrId,
-      ip: session.ip || 'Unknown',
-      path: session.playStreamPath || session.publishStreamPath || 'Unknown',
-      startTime: session.startTime,
-      uptime: uptime > 100000 ? 0 : uptime, // Sanity check for start time
-      bytes: bytesWritten || bytesRead,
-      bitrate: session.bitrate || 0,
-      protocol: session.protocol || 'rtmp'
-    };
-  }
+  // Signaling & Web Server
+  const expressApp = express();
+  const server = https.createServer({
+    key: sslPems.private,
+    cert: sslPems.cert
+  }, expressApp);
+  console.log('[SSL] HTTPS server created on 4001');
 
-  return { id: sessionOrId, ip: 'Unknown', path: 'Unknown', uptime: 0, bitrate: 0 };
-};
+  // Serve the React client production build
+  const clientPath = path.join(__dirname, '../client/dist');
+  expressApp.use(express.static(clientPath));
 
-nms.on('postPlay', (id, StreamPath, args) => {
-  const data = getSessionData(id);
-  const sId = data.id;
-  const sPath = StreamPath || data.path;
-  console.log(`[RTMP] New Player: ${sId} path=${sPath} ip=${data.ip}`);
-  rtmpSessions.set(sId, {
-    id: sId,
-    path: sPath,
-    ip: data.ip,
-    startTime: Date.now()
+  // Redirect all other requests to the React app
+  expressApp.get('*', (req, res) => {
+    res.sendFile(path.join(clientPath, 'index.html'));
   });
-  broadcastStatus();
-});
 
-nms.on('donePlay', (id) => {
-  const data = getSessionData(id);
-  const sId = data.id;
-  console.log(`[RTMP] Player Disconnected: ${sId}`);
-  rtmpSessions.delete(sId);
-  broadcastStatus();
-});
+  const io = new Server(server, {
+    cors: {
+      origin: '*',
+      methods: ["GET", "POST"]
+    },
+    transports: ['websocket'] // Force websocket to bypass polling SSL handshake issues in some browsers
+  });
 
-process.on('uncaughtException', (err) => {
-  console.error('[CRITICAL] Uncaught Exception:', err);
-});
-
-// Signaling & Web Server
-const expressApp = express();
-const server = https.createServer({
-  key: pems.private,
-  cert: pems.cert
-}, expressApp);
-
-// Serve the React client production build
-const clientPath = path.join(__dirname, '../client/dist');
-expressApp.use(express.static(clientPath));
-
-// Redirect all other requests to the React app
-expressApp.get('*', (req, res) => {
-  res.sendFile(path.join(clientPath, 'index.html'));
-});
-
-const io = new Server(server, {
-  cors: {
-    origin: '*',
-    methods: ["GET", "POST"]
-  }
-});
-
-const users = {}; // socket.id -> { name, roomId }
-
-// IP Discovery Helper
-async function broadcastStatus(roomId = 'main') {
-  const networkInterfaces = os.networkInterfaces();
-  let localIP = '127.0.0.1';
-  for (const name in networkInterfaces) {
-    for (const iface of networkInterfaces[name]) {
-      if (iface.family === 'IPv4' && !iface.internal) {
-        localIP = iface.address;
-        break;
-      }
-    }
-  }
-
-  const sessions = Array.from(rtmpSessions.keys()).map(id => getSessionData(id));
-
-  const status = {
-    local: localIP,
-    public: 'Discovery Active',
-    clientCount: Object.keys(users).length,
-    rtmpCount: rtmpSessions.size,
-    rtmpSessions: sessions
-  };
-  
-  io.emit('server-status', status);
+  return { nms, server, io };
 }
 
-io.on('connection', (socket) => {
-  console.log('[Signaling] New socket connection:', socket.id);
-  
-  socket.on('join-room', ({ roomId, userName }) => {
-    socket.join(roomId);
-    users[socket.id] = { name: userName || `User ${socket.id.slice(0, 4)}`, roomId };
+console.log('[SERVER] Starting initialization...');
+initializeServer().then(({ nms, server, io }) => {
+  console.log('[SERVER] Initialization successful, attaching listeners...');
+  const rtmpSessions = new Map(); // id -> { ip, path, startTime }
+
+  // Helper to extract session data safely
+  const getSessionData = (sessionOrId) => {
+    let session = null;
     
-    // 1. Tell the newcomer about everyone else already in the room
-    const otherUsers = Object.keys(users).filter(id => id !== socket.id && users[id].roomId === roomId);
-    socket.emit('all-users', otherUsers.map(id => ({ userId: id, userName: users[id].name })));
-    
-    // 2. Tell everyone else that the newcomer has arrived
-    socket.to(roomId).emit('user-joined', { userId: socket.id, userName: users[socket.id].name });
-    
-    console.log(`[Signaling] ${users[socket.id].name} joined ${roomId}. Total in room: ${otherUsers.length + 1}`);
-    
-    // Broadcast status update to all
-    broadcastStatus(roomId);
-  });
-
-  socket.on('offer', (data) => {
-    console.log(`[Signaling] Offer from ${socket.id} to ${data.to}`);
-    socket.to(data.to).emit('offer', {
-      offer: data.offer,
-      senderId: socket.id,
-      senderName: users[socket.id]?.name || 'Unknown'
-    });
-  });
-
-  socket.on('answer', (data) => {
-    console.log(`[Signaling] Answer from ${socket.id} to ${data.to}`);
-    socket.to(data.to).emit('answer', {
-      answer: data.answer,
-      senderId: socket.id
-    });
-  });
-
-  socket.on('ice-candidate', (data) => {
-    socket.to(data.to).emit('ice-candidate', {
-      candidate: data.candidate,
-      senderId: socket.id
-    });
-  });
-
-  socket.on('chat-message', (data) => {
-    const { roomId, message } = data;
-    const senderName = users[socket.id]?.name || 'Unknown';
-    console.log(`[Chat] ${senderName} in ${roomId}: ${message}`);
-    io.to(roomId).emit('chat-message', {
-      senderId: socket.id,
-      senderName,
-      message,
-      timestamp: Date.now()
-    });
-  });
-
-  socket.on('disconnect', () => {
-    if (users[socket.id]) {
-      const { name, roomId } = users[socket.id];
-      socket.to(roomId).emit('user-disconnected', socket.id);
-      delete users[socket.id];
-      console.log(`[Signaling] ${name} disconnected. Remaining users: ${Object.keys(users).length}`);
-      broadcastStatus(roomId);
+    if (typeof sessionOrId === 'object' && sessionOrId !== null) {
+      session = sessionOrId;
+    } else if (nms.sessions) {
+      // nms.sessions can be a Map or an Object depending on version
+      if (typeof nms.sessions.get === 'function') {
+        session = nms.sessions.get(sessionOrId);
+      } else {
+        session = nms.sessions[sessionOrId];
+      }
     }
+
+    if (session) {
+      const uptime = Math.floor((Date.now() - (session.startTime || 0)) / 1000);
+      const bytesRead = session.socket?.bytesRead || 0;
+      const bytesWritten = session.socket?.bytesWritten || 0;
+      
+      return {
+        id: session.id || sessionOrId,
+        ip: session.ip || 'Unknown',
+        path: session.playStreamPath || session.publishStreamPath || 'Unknown',
+        startTime: session.startTime,
+        uptime: uptime > 100000 ? 0 : uptime, // Sanity check for start time
+        bytes: bytesWritten || bytesRead,
+        bitrate: session.bitrate || 0,
+        protocol: session.protocol || 'rtmp'
+      };
+    }
+
+    return { id: sessionOrId, ip: 'Unknown', path: 'Unknown', uptime: 0, bitrate: 0 };
+  };
+
+  nms.on('postPlay', (id, StreamPath, args) => {
+    const data = getSessionData(id);
+    const sId = data.id;
+    const sPath = StreamPath || data.path;
+    console.log(`[RTMP] New Player: ${sId} path=${sPath} ip=${data.ip}`);
+    rtmpSessions.set(sId, {
+      id: sId,
+      path: sPath,
+      ip: data.ip,
+      startTime: Date.now()
+    });
+    broadcastStatus();
   });
-});
 
-// Periodic status broadcast (every 5 seconds) to keep uptimes fresh
-setInterval(() => {
-  broadcastStatus();
-}, 5000);
+  nms.on('donePlay', (id) => {
+    const data = getSessionData(id);
+    const sId = data.id;
+    console.log(`[RTMP] Player Disconnected: ${sId}`);
+    rtmpSessions.delete(sId);
+    broadcastStatus();
+  });
 
-ipcMain.on('telemetry-refresh', () => {
-  console.log('[TELEMETRY] Manual refresh requested');
-  broadcastStatus();
-});
+  // Signaling & Web Server Setup
+  const users = {}; // socket.id -> { name, roomId }
 
-server.listen(4001, '0.0.0.0', () => {
-  console.log('Signaling server listening on HTTPS 0.0.0.0:4001');
+  // IP Discovery Helper
+  async function broadcastStatus(roomId = 'main') {
+    try {
+      const networkInterfaces = os.networkInterfaces();
+      let localIP = '127.0.0.1';
+      for (const name in networkInterfaces) {
+        for (const iface of networkInterfaces[name]) {
+          if (iface.family === 'IPv4' && !iface.internal) {
+            localIP = iface.address;
+            break;
+          }
+        }
+      }
+
+      const sessions = Array.from(rtmpSessions.keys()).map(id => getSessionData(id));
+
+      const status = {
+        local: localIP,
+        public: 'Discovery Active',
+        clientCount: Object.keys(users).length,
+        rtmpCount: rtmpSessions.size,
+        rtmpSessions: sessions
+      };
+      
+      io.emit('server-status', status);
+    } catch (err) {
+      console.error('[STATUS] Broadcast failed:', err);
+    }
+  }
+
+  io.on('connection', (socket) => {
+    console.log('[Signaling] New socket connection:', socket.id);
+    
+    socket.on('join-room', ({ roomId, userName }) => {
+      socket.join(roomId);
+      users[socket.id] = { name: userName || `User ${socket.id.slice(0, 4)}`, roomId };
+      
+      const otherUsers = Object.keys(users).filter(id => id !== socket.id && users[id].roomId === roomId);
+      socket.emit('all-users', otherUsers.map(id => ({ userId: id, userName: users[id].name })));
+      
+      socket.to(roomId).emit('user-joined', { userId: socket.id, userName: users[socket.id].name });
+      
+      console.log(`[Signaling] ${users[socket.id].name} joined ${roomId}. Total in room: ${otherUsers.length + 1}`);
+      broadcastStatus(roomId);
+    });
+
+    socket.on('offer', (data) => {
+      socket.to(data.to).emit('offer', {
+        offer: data.offer,
+        senderId: socket.id,
+        senderName: users[socket.id]?.name || 'Unknown'
+      });
+    });
+
+    socket.on('answer', (data) => {
+      socket.to(data.to).emit('answer', {
+        answer: data.answer,
+        senderId: socket.id
+      });
+    });
+
+    socket.on('ice-candidate', (data) => {
+      socket.to(data.to).emit('ice-candidate', {
+        candidate: data.candidate,
+        senderId: socket.id
+      });
+    });
+
+    socket.on('chat-message', (data) => {
+      const { roomId, message } = data;
+      const senderName = users[socket.id]?.name || 'Unknown';
+      io.to(roomId).emit('chat-message', {
+        senderId: socket.id,
+        senderName,
+        message,
+        timestamp: Date.now()
+      });
+    });
+
+    socket.on('disconnect', () => {
+      if (users[socket.id]) {
+        const { name, roomId } = users[socket.id];
+        socket.to(roomId).emit('user-disconnected', socket.id);
+        delete users[socket.id];
+        broadcastStatus(roomId);
+      }
+    });
+  });
+
+  // Periodic status broadcast
+  const statusInterval = setInterval(() => {
+    broadcastStatus();
+  }, 5000);
+
+  ipcMain.on('telemetry-refresh', () => {
+    broadcastStatus();
+  });
+
+  server.listen(4001, '0.0.0.0', () => {
+    console.log('Signaling server listening on HTTPS 0.0.0.0:4001');
+  });
+
+  // Cleanup on app quit
+  app.on('before-quit', () => {
+    clearInterval(statusInterval);
+    if (server) server.close();
+    if (nms) nms.stop();
+  });
+}).catch(err => {
+  console.error('[CRITICAL] Server Initialization Failed:', err);
 });
 
 let ffmpegProcess = null;
@@ -298,11 +323,13 @@ ipcMain.on('stop-virtual-cam', () => {
 const { PassThrough } = require('stream');
 let pipeFfmpeg = null;
 let videoStream = null;
+let activeStreamKey = null;
 
 ipcMain.on('ffmpeg-pipe-start', (event, options = {}) => {
   if (pipeFfmpeg) {
     pipeFfmpeg.kill();
     videoStream = null;
+    activeStreamKey = null;
   }
 
   const { 
@@ -313,6 +340,7 @@ ipcMain.on('ffmpeg-pipe-start', (event, options = {}) => {
     fps = 30
   } = options;
   
+  activeStreamKey = streamKey;
   let vcodec = 'libx264';
   let accelFlags = [];
 
@@ -328,13 +356,14 @@ ipcMain.on('ffmpeg-pipe-start', (event, options = {}) => {
   videoStream = new PassThrough();
   
   pipeFfmpeg = ffmpeg(videoStream)
-    .inputFormat('webm')
+    .inputFormat('matroska') // WebM is a subset of Matroska, more stable for FFmpeg pipe
     .inputOptions([
       '-hwaccel auto',
-      '-fflags nobuffer',
-      '-flags low_delay',
+      '-loglevel debug',
       '-probesize 32',
       '-analyzeduration 0',
+      '-fflags nobuffer+igndts',
+      '-flags low_delay',
       ...accelFlags
     ])
     .outputOptions([
@@ -358,11 +387,13 @@ ipcMain.on('ffmpeg-pipe-start', (event, options = {}) => {
     .run();
 });
 
-ipcMain.on('ffmpeg-pipe-chunk', (event, chunk) => {
-  const buffer = Buffer.from(chunk);
-  if (videoStream) {
-    videoStream.write(buffer);
+ipcMain.on('ffmpeg-pipe-chunk', (event, data) => {
+  const { chunk, streamKey } = data;
+  if (!videoStream || streamKey !== activeStreamKey) {
+    return;
   }
+  const buffer = Buffer.from(chunk);
+  videoStream.write(buffer);
 });
 
 ipcMain.on('ffmpeg-pipe-stop', () => {

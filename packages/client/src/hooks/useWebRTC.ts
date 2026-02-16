@@ -3,11 +3,11 @@ import io from 'socket.io-client';
 import Peer from 'simple-peer';
 
 export const isElectron = typeof window !== 'undefined' && 
-                          typeof (window as any).electron !== 'undefined' && 
-                          navigator.userAgent.toLowerCase().indexOf(' electron/') > -1;
+                          (navigator.userAgent.toLowerCase().indexOf(' electron/') > -1 || 
+                           (window as any).process?.versions?.electron);
 
-export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?: string; userName?: string; cameraLabel?: string; iceServers?: RTCIceServer[]; overrideStream?: MediaStream | null } = {}) => {
-  const { videoId, audioId, userName, cameraLabel, iceServers, overrideStream } = options;
+export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?: string; userName?: string; cameraLabel?: string; captureVideo?: boolean; iceServers?: RTCIceServer[]; overrideStream?: MediaStream | null } = {}) => {
+  const { videoId, audioId, userName, cameraLabel, captureVideo, iceServers, overrideStream } = options;
   const [peers, setPeers] = useState<{ id: string; name: string; peer: any; stream?: MediaStream }[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [socketStatus, setSocketStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
@@ -55,9 +55,14 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
     if (isConnected) return;
     setSocketStatus('connecting');
     addLocalStatus('Connecting to signaling server...');
-    const signalingUrl = `${window.location.protocol}//${window.location.hostname}:4001`;
+    // Use relative path to leverage Vite proxy in dev, or same-origin in prod
+    // FOR ELECTRON: Use direct signaling URL to avoid proxy issues with self-signed certs
+    const signalingUrl = isElectron ? 'https://localhost:4001' : window.location.origin;
     console.log('[WebRTC] Connecting to signaling:', signalingUrl);
-    socketRef.current = io(signalingUrl);
+    socketRef.current = io(signalingUrl, {
+      rejectUnauthorized: false,
+      transports: ['websocket']
+    });
 
     socketRef.current.on('connect', () => {
       console.log('[WebRTC] Socket connected:', socketRef.current.id);
@@ -65,14 +70,17 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
       setIsConnected(true);
       const displayName = isElectron ? 'Admin Hub' : userName;
       const fullIdentity = `${displayName} - ${cameraLabel || 'Hub'}`;
-      socketRef.current.emit('join-room', { roomId, userName: fullIdentity });
-      addLocalStatus(`Joined room: ${roomId} as ${fullIdentity}`);
+      // Use a consistent roomId for the Hub
+      const effectiveRoomId = 'main-hub';
+      socketRef.current.emit('join-room', { roomId: effectiveRoomId, userName: fullIdentity });
+      addLocalStatus(`Joined room: ${effectiveRoomId} as ${fullIdentity}`);
     });
 
     socketRef.current.on('connect_error', (err: any) => {
       console.error('[WebRTC] Socket connect error:', err);
       setSocketStatus('error');
       setIsConnected(false);
+      addLocalStatus(`Connection Error: ${err.message}`);
     });
 
     socketRef.current.on('all-users', (usersList: { userId: string; userName: string }[]) => {
@@ -95,7 +103,14 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
 
     socketRef.current.on('offer', (data: { offer: any; senderId: string; senderName: string }) => {
       console.log('[WebRTC] Offer received from:', data.senderName);
-      if (peersRef.current.find(p => p.id === data.senderId)) return;
+      const existingPeer = peersRef.current.find(p => p.id === data.senderId);
+      
+      if (existingPeer) {
+        console.log('[WebRTC] Processing re-negotiation offer for existing peer:', data.senderName);
+        existingPeer.peer.signal(data.offer);
+        return;
+      }
+
       const peer = addPeer(data.offer, data.senderId, data.senderName, userStream || undefined);
       peersRef.current.push({ id: data.senderId, name: data.senderName, peer });
       setPeers((prev) => [...prev, { id: data.senderId, name: data.senderName, peer }]);
@@ -144,8 +159,6 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
       console.log('[WebRTC] Server status updated:', status);
       setServerStatus(status);
     });
-
-    // Connection state is now handled in the 'connect' event listener
   };
 
   const disconnect = () => {
@@ -204,7 +217,9 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
 
   useEffect(() => {
     // We now allow media in both Client and Electron (Admin)
-    if (!videoId && !audioId) {
+    const shouldCapture = captureVideo || (!!videoId || !!audioId);
+    
+    if (!shouldCapture) {
       if (userStream && !overrideStream) {
         userStream.getTracks().forEach(t => t.stop());
         setUserStream(null);
@@ -224,34 +239,25 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
       return;
     }
 
+    addLocalStatus('Requesting camera/mic access...');
     navigator.mediaDevices.getUserMedia(constraints).then((stream) => {
+      addLocalStatus('Camera access granted.');
       cameraStreamRef.current = stream;
-      if (userStream) {
-        // Replace tracks on existing peers
-        const videoTrack = stream.getVideoTracks()[0];
-        const audioTrack = stream.getAudioTracks()[0];
+      
+      // If we already have peers connected, add this new stream to them
+      peersRef.current.forEach(({ peer }) => {
+        if (!peer.streams.includes(stream)) {
+          console.log('[WebRTC] Adding new camera stream to existing peer');
+          peer.addStream(stream);
+        }
+      });
 
-        peersRef.current.forEach(({ peer }) => {
-          if (peer.streams[0]) {
-            const oldVideoTrack = peer.streams[0].getVideoTracks()[0];
-            const oldAudioTrack = peer.streams[0].getAudioTracks()[0];
-            if (oldVideoTrack) peer.replaceTrack(oldVideoTrack, videoTrack, peer.streams[0]);
-            if (oldAudioTrack) peer.replaceTrack(oldAudioTrack, audioTrack, peer.streams[0]);
-          } else {
-            peer.addStream(stream);
-          }
-        });
-        
-        userStream.getTracks().forEach(t => t.stop());
-      }
       setUserStream(stream);
-
-      // If already connected, we might need to tell others or update?
-      // For now, track replacement handles it for existing users.
     }).catch(err => {
       console.error('Error getting user media:', err);
+      addLocalStatus(`Camera Error: ${err.name} - ${err.message}`);
     });
-  }, [videoId, audioId]);
+  }, [videoId, audioId, captureVideo]);
 
   useEffect(() => {
     if (userStream) {
@@ -269,13 +275,25 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
     });
 
     peer.on('signal', (signal: any) => {
+      console.log(`[WebRTC] Local Signal (${signal.type}) for ${name}`);
       if (socketRef.current) {
-        socketRef.current.emit('offer', { roomId, offer: signal, to: userToSignal });
+        socketRef.current.emit('offer', { roomId: 'main-hub', offer: signal, to: userToSignal });
       }
     });
 
+    peer.on('iceStateChange', (state: string) => {
+      console.log(`[WebRTC] ICE State for ${name}: ${state}`);
+    });
+
+    peer.on('error', (err: any) => {
+      console.error(`[WebRTC] Peer error with ${userToSignal}:`, err);
+      addLocalStatus(`P2P Error (${name}): ${err.code || err.message}`);
+    });
+
     peer.on('stream', (remoteStream: MediaStream) => {
-      console.log(`[WebRTC] SUCCESS: Received stream from ${userToSignal}. Tracks:`, remoteStream.getTracks().length);
+      const trackCount = remoteStream.getTracks().length;
+      console.log(`[WebRTC] SUCCESS: Received stream from ${userToSignal}. Tracks:`, trackCount);
+      addLocalStatus(`Stream Received: ${name} (${trackCount} tracks)`);
       setPeers((prev) => prev.map((p) => p.id === userToSignal ? { ...p, stream: remoteStream } : p));
     });
 
@@ -291,13 +309,30 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
     });
 
     peer.on('signal', (signal: any) => {
+      console.log(`[WebRTC] Local Signal (${signal.type}) for ${name}`);
       if (socketRef.current) {
-        socketRef.current.emit('answer', { roomId, answer: signal, to: callerId });
+        socketRef.current.emit('answer', { roomId: 'main-hub', answer: signal, to: callerId });
       }
     });
 
+    peer.on('iceStateChange', (state: string) => {
+      console.log(`[WebRTC] ICE State for ${name}: ${state}`);
+    });
+
+    peer.on('connect', () => {
+      console.log(`[WebRTC] P2P Connection established with ${callerId} (${name})`);
+      addLocalStatus(`P2P Connected: ${name}`);
+    });
+
+    peer.on('error', (err: any) => {
+      console.error(`[WebRTC] Peer error with ${callerId}:`, err);
+      addLocalStatus(`P2P Error (${name}): ${err.code || err.message}`);
+    });
+
     peer.on('stream', (remoteStream: MediaStream) => {
-      console.log(`[WebRTC] SUCCESS: Received stream from ${callerId}. Tracks:`, remoteStream.getTracks().length);
+      const trackCount = remoteStream.getTracks().length;
+      console.log(`[WebRTC] SUCCESS: Received stream from ${callerId}. Tracks:`, trackCount);
+      addLocalStatus(`Stream Received: ${name} (${trackCount} tracks)`);
       setPeers((prev) => prev.map((p) => p.id === callerId ? { ...p, stream: remoteStream } : p));
     });
 
