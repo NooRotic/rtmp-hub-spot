@@ -11,9 +11,10 @@ interface GridViewProps {
     preset: string;
     hwAccel: string;
   };
+  autoLayout?: boolean;
 }
 
-const GridView: React.FC<GridViewProps> = ({ streams, onStreamUpdate, broadcastSettings }) => {
+const GridView: React.FC<GridViewProps> = ({ streams, onStreamUpdate, broadcastSettings, autoLayout = true }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isPiping, setIsPiping] = useState(false);
@@ -42,6 +43,31 @@ const GridView: React.FC<GridViewProps> = ({ streams, onStreamUpdate, broadcastS
     if (containerRef.current) observer.observe(containerRef.current);
     return () => observer.disconnect();
   }, []);
+
+  useEffect(() => {
+    const updateCanvasSize = () => {
+      if (!canvasRef.current) return;
+      
+      if (autoLayout) {
+        // Standard 16:9 1080p for high-quality composite
+        canvasRef.current.width = 1920;
+        canvasRef.current.height = 1080;
+      } else if (containerRef.current) {
+        // Match container size exactly for manual layout
+        const rect = containerRef.current.getBoundingClientRect();
+        canvasRef.current.width = rect.width * window.devicePixelRatio;
+        canvasRef.current.height = rect.height * window.devicePixelRatio;
+        canvasRef.current.style.width = '100%';
+        canvasRef.current.style.height = '100%';
+      }
+    };
+
+    updateCanvasSize();
+    if (!autoLayout) {
+      window.addEventListener('resize', updateCanvasSize);
+      return () => window.removeEventListener('resize', updateCanvasSize);
+    }
+  }, [autoLayout]);
 
   const activeStreams = streams.filter(s => s.stream);
 
@@ -205,8 +231,20 @@ const GridView: React.FC<GridViewProps> = ({ streams, onStreamUpdate, broadcastS
           </button>
         )}
       </div>
-      <div className="window-content" style={{ backgroundColor: '#404040', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-        <div style={{ fontSize: '10px', color: '#ccc', marginBottom: '5px' }}>
+      <div 
+        className="window-content" 
+        style={{ 
+          backgroundColor: '#404040', 
+          display: 'flex', 
+          flexDirection: 'column', 
+          alignItems: 'center',
+          flexGrow: 1,
+          minHeight: '200px',
+          position: 'relative',
+          overflow: 'hidden'
+        }}
+      >
+        <div style={{ fontSize: '10px', color: '#ccc', marginBottom: '5px', zIndex: 5 }}>
           {isPiping ? (
             <span>RTMP LIVE: <strong style={{color: '#00ff00'}}>rtmp://{window.location.hostname}/live/grid</strong></span>
           ) : (

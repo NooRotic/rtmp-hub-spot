@@ -67,6 +67,18 @@ function App() {
 
   const { width: sidebarWidth, startResizing } = useResizableSidebar(250);
 
+  // Grid management state
+  const [gridMembers, setGridMembers] = useState<Set<string>>(new Set(['local']));
+  const [gridAutoLayout, setGridAutoLayout] = useState(true);
+
+  const toggleGridMember = (id: string) => {
+    setGridMembers(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
   const [selectedVideo, setSelectedVideo] = useState<string>(localStorage.getItem('hub-video-device') || '');
   const [selectedAudio, setSelectedAudio] = useState<string>(localStorage.getItem('hub-audio-device') || '');
   const [userName, setUserName] = useState<string>(isElectron ? 'Admin' : (localStorage.getItem('hub-username') || ''));
@@ -119,6 +131,14 @@ function App() {
       ipc.send('telemetry-refresh');
     }
   };
+
+  const gridStreams = useMemo(() => {
+    const all = [
+      { id: 'local', stream: userStream || undefined, label: cameraLabel },
+      ...peers.map(p => ({ id: p.id, stream: p.stream, label: p.name || p.id.slice(0, 8) }))
+    ];
+    return all.filter(s => gridMembers.has(s.id));
+  }, [peers, userStream, cameraLabel, gridMembers]);
 
   const allStreams = useMemo(() => [
     ...(userStream && (isElectron ? (adminCamActive || isGridShared) : localCameraActive) ? [{ 
@@ -186,14 +206,52 @@ function App() {
                 <h3 style={{ borderBottom: '1px solid #808080' }}>Connected Clients</h3>
                 <div className="inset-field" style={{ height: '120px', overflowY: 'auto', fontSize: '10px', marginBottom: '10px' }}>
                   {peers.length === 0 ? 'No clients connected.' : peers.map(p => (
-                    <div key={p.id} style={{ borderBottom: '1px solid #eee', padding: '2px 0', display: 'flex', justifyContent: 'space-between' }}>
-                      <span>⏺ {p.name || p.id.slice(0, 8)}</span>
-                      <span style={{ color: p.stream ? '#00ff00' : '#ff9900' }}>
-                        {p.stream ? 'VIDEO OK' : 'NO FEED'}
-                      </span>
+                    <div key={p.id} style={{ borderBottom: '1px solid #eee', padding: '2px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        <span style={{ marginRight: '5px' }}>⏺</span>
+                        <span>{p.name || p.id.slice(0, 8)}</span>
+                        {p.stream ? 
+                          <span style={{ color: '#00ff00', marginLeft: '5px', fontSize: '8px' }}>[VIDEO OK]</span> : 
+                          <span style={{ color: '#ff0000', marginLeft: '5px', fontSize: '8px' }}>[NO FEED]</span>
+                        }
+                      </div>
+                      {isElectron && (
+                        <label style={{ fontSize: '8px', cursor: 'pointer' }}>
+                          <input 
+                            type="checkbox" 
+                            checked={gridMembers.has(p.id)} 
+                            onChange={() => toggleGridMember(p.id)}
+                            style={{ margin: 0, verticalAlign: 'middle' }}
+                          /> Grid
+                        </label>
+                      )}
                     </div>
                   ))}
                 </div>
+
+                {isElectron && (
+                  <>
+                    <h3 style={{ borderBottom: '1px solid #808080', marginTop: '15px' }}>Grid Controls</h3>
+                    <div className="inset-field" style={{ padding: '5px', fontSize: '10px' }}>
+                      <div style={{ marginBottom: '5px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span>Include Admin:</span>
+                        <input 
+                          type="checkbox" 
+                          checked={gridMembers.has('local')} 
+                          onChange={() => toggleGridMember('local')}
+                        />
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span>Auto Layout:</span>
+                        <input 
+                          type="checkbox" 
+                          checked={gridAutoLayout} 
+                          onChange={(e) => setGridAutoLayout(e.target.checked)}
+                        />
+                      </div>
+                    </div>
+                  </>
+                )}
 
                 <h3 style={{ borderBottom: '1px solid #808080' }}>Active RTMP Links</h3>
                 <div className="inset-field" style={{ padding: '8px', fontSize: '10px', marginBottom: '10px', color: '#00ff00', fontFamily: 'monospace' }}>
@@ -416,6 +474,7 @@ function App() {
                     preset: broadcastPreset,
                     hwAccel: hwAccel
                   }}
+                  autoLayout={gridAutoLayout}
                 />
               )}
               

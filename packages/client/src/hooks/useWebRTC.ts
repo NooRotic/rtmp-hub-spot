@@ -190,9 +190,26 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
         if (peer.streams[0]) {
           const oldVideoTrack = peer.streams[0].getVideoTracks()[0];
           const oldAudioTrack = peer.streams[0].getAudioTracks()[0];
-          if (oldVideoTrack && videoTrack) peer.replaceTrack(oldVideoTrack, videoTrack, peer.streams[0]);
-          if (oldAudioTrack && audioTrack) peer.replaceTrack(oldAudioTrack, audioTrack, peer.streams[0]);
+          
+          if (videoTrack) {
+            if (oldVideoTrack) {
+              console.log('[WebRTC] Replacing video track for peer');
+              peer.replaceTrack(oldVideoTrack, videoTrack, peer.streams[0]);
+            } else {
+              console.log('[WebRTC] Adding video track to existing stream for peer');
+              peer.addTrack(videoTrack, peer.streams[0]);
+            }
+          }
+          
+          if (audioTrack) {
+            if (oldAudioTrack) {
+              peer.replaceTrack(oldAudioTrack, audioTrack, peer.streams[0]);
+            } else {
+              peer.addTrack(audioTrack, peer.streams[0]);
+            }
+          }
         } else {
+          console.log('[WebRTC] Adding full stream to peer');
           peer.addStream(overrideStream);
         }
       });
@@ -207,8 +224,13 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
         if (peer.streams[0]) {
           const oldVideoTrack = peer.streams[0].getVideoTracks()[0];
           const oldAudioTrack = peer.streams[0].getAudioTracks()[0];
-          if (oldVideoTrack && videoTrack) peer.replaceTrack(oldVideoTrack, videoTrack, peer.streams[0]);
+          if (oldVideoTrack && videoTrack) {
+            console.log('[WebRTC] Restoring camera video track for peer');
+            peer.replaceTrack(oldVideoTrack, videoTrack, peer.streams[0]);
+          }
           if (oldAudioTrack && audioTrack) peer.replaceTrack(oldAudioTrack, audioTrack, peer.streams[0]);
+        } else {
+           peer.addStream(camStream);
         }
       });
       setUserStream(camStream);
@@ -277,7 +299,13 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
     peer.on('signal', (signal: any) => {
       console.log(`[WebRTC] Local Signal (${signal.type}) for ${name}`);
       if (socketRef.current) {
-        socketRef.current.emit('offer', { roomId: 'main-hub', offer: signal, to: userToSignal });
+        if (signal.type === 'offer' || signal.type === 'transceiverRequest') {
+            socketRef.current.emit('offer', { roomId: 'main-hub', offer: signal, to: userToSignal });
+        } else if (signal.type === 'answer') {
+            socketRef.current.emit('answer', { roomId: 'main-hub', answer: signal, to: userToSignal });
+        } else if (signal.candidate) {
+            socketRef.current.emit('ice-candidate', { roomId: 'main-hub', candidate: signal, to: userToSignal });
+        }
       }
     });
 
@@ -311,7 +339,13 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
     peer.on('signal', (signal: any) => {
       console.log(`[WebRTC] Local Signal (${signal.type}) for ${name}`);
       if (socketRef.current) {
-        socketRef.current.emit('answer', { roomId: 'main-hub', answer: signal, to: callerId });
+        if (signal.type === 'offer' || signal.type === 'transceiverRequest') {
+            socketRef.current.emit('offer', { roomId: 'main-hub', offer: signal, to: callerId });
+        } else if (signal.type === 'answer') {
+            socketRef.current.emit('answer', { roomId: 'main-hub', answer: signal, to: callerId });
+        } else if (signal.candidate) {
+            socketRef.current.emit('ice-candidate', { roomId: 'main-hub', candidate: signal, to: callerId });
+        }
       }
     });
 
