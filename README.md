@@ -16,6 +16,12 @@ RTMP Hub Spot is a professional-grade streaming utility designed to bridge the g
 - **🕵️‍♂️ Professional Surveillance**: Real-time telemetry tracking viewer IPs, stream paths, and session uptimes.
 - **💬 Global Hub Chat**: Low-latency signaling chat for Hub coordination.
 
+<!-- Screenshot Placeholder: Admin Dashboard illustrating the layout and grid controls -->
+
+> _Screenshot: The Admin Dashboard showing the Grid View, Connected Clients list, and Broadcast Controls._
+
+---
+
 ## 🚀 Quick Start
 
 ### Prerequisites
@@ -34,12 +40,62 @@ cd rtmp-hub-spot
 npm install
 ```
 
-### Development
+### Running the App
 
 ```bash
 # Start both Client and Server in one go
 npm run dev
 ```
+
+---
+
+## 🎥 OBS Setup Guide (The "Power User" Flow)
+
+This guide explains how to pull high-quality feeds from RTMP Hub Spot into OBS Studio for professional broadcasting.
+
+### 1. Start the Hub
+
+Launch the application (`npm run dev`). The Admin window will open.
+
+- **Check Status**: Ensure "NMS Server" says "Listening".
+- **Grid View**: Click "ENABLE GRID VIEW" to see the composite layout.
+- **Share Grid**: Click "SHARE GRID TO ALL" to start the internal RTMP stream.
+
+### 2. Get the RTMP Link
+
+Look at the **Active RTMP Links** section in the sidebar. You will see links like:
+
+- **Grid**: `rtmp://localhost/live/grid`
+- **User Feed**: `rtmp://localhost/live/feed-username`
+
+### 3. Configure OBS Studio
+
+1.  **Add Source**: In OBS, click the `+` icon under Sources and select **Media Source**.
+2.  **Name It**: E.g., "Hub Grid" or "Guest 1".
+3.  **Properties Setup**:
+    - **Local File**: Uncheck this (we are using a network stream).
+    - **Input**: Paste the RTMP link (e.g., `rtmp://localhost/live/grid`).
+    - **Input Format**: Leave blank or type `flv`.
+    - **Network Buffering**: Set to `1 MB` or `2 MB` (lower = lower latency, higher = smoother).
+    - **Restart playback when source becomes active**: Check this.
+    - **Use hardware decoding**: Check this if available.
+    - **Show nothing when playback ends**: Check this.
+4.  **Click OK**.
+
+> **Pro Tip**: If the feed doesn't appear immediately, toggle the visibility of the source in OBS (the eye icon) to force a reconnect.
+
+<!-- Screenshot Placeholder: OBS Studio Source Properties dialog showing the RTMP input configuration -->
+
+> _Screenshot: Correct Media Source settings in OBS for low-latency playback._
+
+### 4. Audio Handling
+
+The RTMP stream includes mixed audio from all participants.
+
+- In OBS **Audio Mixer**, ensure your Media Source is active.
+- To monitor audio without echo, set **Audio Monitoring** to "Monitor Off" (unless you are wearing headphones).
+
+---
 
 ## 🏗 Architecture
 
