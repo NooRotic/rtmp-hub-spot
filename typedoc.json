@@ -1,0 +1,20 @@
+{
+  "entryPoints": [
+    "packages/server/main.js",
+    "packages/client/src/App.tsx",
+    "packages/client/src/hooks/useWebRTC.ts"
+  ],
+  "out": "jsDocs",
+  "name": "RTMP Hub Spot API Docs",
+  "readme": "README.md",
+  "plugin": ["typedoc-plugin-missing-exports"],
+  "compilerOptions": {
+    "skipLibCheck": true,
+    "noEmitOnError": false,
+    "allowJs": true,
+    "strict": false,
+    "ignoreCompilerErrors": true
+  },
+  "excludeExternals": true,
+  "excludePrivate": true
+}

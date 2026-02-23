@@ -4,6 +4,7 @@ import { useMediaDevices } from './hooks/useMediaDevices';
 import VideoFeed from './components/VideoFeed';
 import GridView from './components/GridView';
 import ChatBox from './components/ChatBox';
+import mpegts from 'mpegts.js';
 
 // Effect for persistence
 export function usePersistence(selectedVideo: string, selectedAudio: string) {
@@ -50,6 +51,20 @@ function useResizableSidebar(initialWidth: number) {
   return { width, startResizing };
 }
 
+/**
+ * The primary WebRTC Hub application component.
+ * 
+ * Functions both as the Host/Admin dashboard (when running in Electron) and
+ * as the remote Participant view (when running in a browser).
+ * 
+ * Responsibilities:
+ * - Local hardware state (Camera, Mic)
+ * - P2P Mesh Network orchestration via `useWebRTC`
+ * - Synthetic Feed ingest (RTMP-to-WebRTC overlays via `mpegts.js`)
+ * - Global Grid compositing state (`gridMembers`)
+ * 
+ * @returns {JSX.Element} The rendered React Application.
+ */
 function App() {
   const isElectron = useMemo(() => {
     return typeof window !== 'undefined' && 
@@ -98,6 +113,12 @@ function App() {
   const [watermarkPos, setWatermarkPos] = useState<'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'>('bottom-right');
   const [showSettingsOverlay, setShowSettingsOverlay] = useState<boolean>(false);
   
+  // RTMP Feed Cameras
+  const [syntheticFeeds, setSyntheticFeeds] = useState<{ id: string, streamKey: string, label: string, stream: MediaStream | null }[]>([]);
+  const [newFeedKey, setNewFeedKey] = useState('');
+  const [newFeedLabel, setNewFeedLabel] = useState('');
+  const feedPlayersRef = useRef<Map<string, { video: HTMLVideoElement, player: any }>>(new Map());
+
   usePersistence(selectedVideo, selectedAudio);
   
   const { videoDevices, audioDevices } = useMediaDevices();
@@ -137,13 +158,111 @@ function App() {
     }
   };
 
+  useEffect(() => {
+    if (isElectron && ipc) {
+      const interval = setInterval(() => {
+        refreshTelemetry();
+      }, 5000);
+      return () => clearInterval(interval);
+    }
+  }, [isElectron, ipc]);
+
+  /**
+   * RTMP Synthetic Feed Effect
+   * 
+   * Iterates over any user-defined `syntheticFeeds`. 
+   * If a feed doesn't have an active player, it injects an `mpegts.js` FLV player
+   * pointing to the local Node Media Server HTTP-FLV egress.
+   * Upon playback, it uses `.captureStream()` to turn the video into a standard MediaStream
+   * and automatically adds it to the composite Grid.
+   */
+  useEffect(() => {
+    syntheticFeeds.forEach(feed => {
+      if (feed.stream || !feedPlayersRef.current) return;
+      
+      const pMap = feedPlayersRef.current;
+      if (pMap.has(feed.id)) return;
+
+      const video = document.createElement('video');
+      video.muted = true;
+      video.playsInline = true;
+      video.autoplay = true;
+
+      // Extract NMS host cleanly
+      const host = serverStatus?.local || 'localhost';
+      
+      if (mpegts.getFeatureList().mseLivePlayback) {
+        const player = mpegts.createPlayer({
+          type: 'flv',
+          isLive: true,
+          url: `http://${host}:8000/live/${feed.streamKey}.flv`
+        });
+        player.attachMediaElement(video);
+        player.load();
+        const playPromise = player.play() as Promise<void> | undefined;
+        if (playPromise !== undefined) {
+          playPromise.catch((e: any) => console.error('[Feeds] Autoplay error:', e));
+        }
+
+        pMap.set(feed.id, { video, player });
+
+        video.addEventListener('playing', () => {
+          if ((video as any).captureStream) {
+            const stream = (video as any).captureStream();
+            setSyntheticFeeds(prev => prev.map(f => f.id === feed.id ? { ...f, stream } : f));
+            // Automatically add to grid upon playing
+            setGridMembers(prev => {
+              const next = new Set(prev);
+              next.add(feed.id);
+              return next;
+            });
+          }
+        });
+      }
+    });
+
+    return () => {
+      // Cleanup happens upon manual removal
+    };
+  }, [syntheticFeeds, serverStatus]);
+
+  const addSyntheticFeed = () => {
+    if (!newFeedKey.trim()) return;
+    const id = `rtmp-${Date.now()}`;
+    setSyntheticFeeds(prev => [...prev, { 
+      id, 
+      streamKey: newFeedKey.trim(), 
+      label: newFeedLabel.trim() || newFeedKey.trim(),
+      stream: null 
+    }]);
+    setNewFeedKey('');
+    setNewFeedLabel('');
+  };
+
+  const removeSyntheticFeed = (id: string) => {
+    const pMap = feedPlayersRef.current;
+    if (pMap && pMap.has(id)) {
+      const { player, video } = pMap.get(id)!;
+      player.destroy();
+      video.srcObject = null;
+      pMap.delete(id);
+    }
+    setSyntheticFeeds(prev => prev.filter(f => f.id !== id));
+    setGridMembers(prev => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  };
+
   const gridStreams = useMemo(() => {
     const all = [
       { id: 'local', stream: userStream || undefined, label: cameraLabel },
-      ...peers.map(p => ({ id: p.id, stream: p.stream, label: p.name || p.id.slice(0, 8) }))
+      ...peers.map(p => ({ id: p.id, stream: p.stream, label: p.name || p.id.slice(0, 8) })),
+      ...syntheticFeeds.filter(f => f.stream).map(f => ({ id: f.id, stream: f.stream as MediaStream, label: f.label }))
     ];
     return all.filter(s => gridMembers.has(s.id));
-  }, [peers, userStream, cameraLabel, gridMembers]);
+  }, [peers, userStream, cameraLabel, gridMembers, syntheticFeeds]);
 
   const allStreams = useMemo(() => [
     ...(userStream && (isElectron ? (adminCamActive || isGridShared) : localCameraActive) ? [{ 
@@ -155,8 +274,13 @@ function App() {
       id: p.id, 
       stream: p.stream as MediaStream, 
       label: p.name 
+    })),
+    ...syntheticFeeds.filter(f => f.stream).map(f => ({
+      id: f.id,
+      stream: f.stream as MediaStream,
+      label: `[Feed] ${f.label}`
     }))
-  ], [userStream, adminCamActive, localCameraActive, isElectron, userName, broadcastLabel, peers]);
+  ], [userStream, adminCamActive, localCameraActive, isElectron, userName, broadcastLabel, peers, syntheticFeeds]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
@@ -208,9 +332,10 @@ function App() {
                   <div><strong>Active RTMP</strong>: {serverStatus?.rtmpCount || 0} Viewer(s)</div>
                 </div>
 
-                <h3 style={{ borderBottom: '1px solid #808080' }}>Connected Clients</h3>
+                <h3 style={{ borderBottom: '1px solid #808080' }}>Connected Clients & Feeds</h3>
                 <div className="inset-field" style={{ height: '120px', overflowY: 'auto', fontSize: '10px', marginBottom: '10px' }}>
-                  {peers.length === 0 ? 'No clients connected.' : peers.map(p => (
+                  {peers.length === 0 && syntheticFeeds.length === 0 ? 'No clients connected.' : null}
+                  {peers.map(p => (
                     <div key={p.id} style={{ borderBottom: '1px solid #eee', padding: '2px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                       <div style={{ display: 'flex', alignItems: 'center' }}>
                         <span style={{ marginRight: '5px' }}>⏺</span>
@@ -230,6 +355,31 @@ function App() {
                           /> Grid
                         </label>
                       )}
+                    </div>
+                  ))}
+                  {syntheticFeeds.map(f => (
+                    <div key={f.id} style={{ borderBottom: '1px solid #eee', padding: '2px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        <span style={{ marginRight: '5px' }}>📡</span>
+                        <span>{f.label}</span>
+                        {f.stream ? 
+                          <span style={{ color: '#00ff00', marginLeft: '5px', fontSize: '8px' }}>[LIVE]</span> : 
+                          <span style={{ color: '#ffaa00', marginLeft: '5px', fontSize: '8px' }}>[FETCHING]</span>
+                        }
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                        {isElectron && (
+                          <label style={{ fontSize: '8px', cursor: 'pointer' }}>
+                            <input 
+                              type="checkbox" 
+                              checked={gridMembers.has(f.id)} 
+                              onChange={() => toggleGridMember(f.id)}
+                              style={{ margin: 0, verticalAlign: 'middle' }}
+                            /> Grid
+                          </label>
+                        )}
+                        <button onClick={() => removeSyntheticFeed(f.id)} style={{ fontSize: '8px', background: '#ff000033', border: '1px solid #f00', cursor: 'pointer' }}>X</button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -284,6 +434,33 @@ function App() {
                           checked={showSettingsOverlay} 
                           onChange={(e) => setShowSettingsOverlay(e.target.checked)}
                         />
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {isElectron && (
+                  <>
+                    <h3 style={{ borderBottom: '1px solid #808080', marginTop: '15px' }}>Add RTMP Feed</h3>
+                    <div className="inset-field" style={{ padding: '5px', fontSize: '10px', marginBottom: '10px' }}>
+                      <div style={{ marginBottom: '5px' }}>
+                        <input 
+                          type="text" 
+                          placeholder="Stream Key (e.g., guest1)" 
+                          className="inset-field" 
+                          style={{ width: '100%', marginBottom: '2px', boxSizing: 'border-box' }}
+                          value={newFeedKey}
+                          onChange={(e) => setNewFeedKey(e.target.value)}
+                        />
+                        <input 
+                          type="text" 
+                          placeholder="Label (e.g., Guest Cam)" 
+                          className="inset-field" 
+                          style={{ width: '100%', marginBottom: '5px', boxSizing: 'border-box' }}
+                          value={newFeedLabel}
+                          onChange={(e) => setNewFeedLabel(e.target.value)}
+                        />
+                        <button className="btn" style={{ width: '100%' }} onClick={addSyntheticFeed}>CONNECT EXT FEED</button>
                       </div>
                     </div>
                   </>

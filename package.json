@@ -13,13 +13,20 @@
     "dev": "concurrently \"npm run dev -w client\" \"npm run server-dev\"",
     "server-dev": "cross-env NODE_TLS_REJECT_UNAUTHORIZED=0 wait-on -t 30000 https-get://localhost:4443 && npm run dev -w server",
     "build": "npm run build --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present"
+    "test": "npm run test --workspaces --if-present",
+    "release:patch": "npm version patch -m \"chore(release): %s\"",
+    "release:minor": "npm version minor -m \"chore(release): %s\"",
+    "release:major": "npm version major -m \"chore(release): %s\"",
+    "docs": "npx jsdoc packages/server/main.js -d jsDocs"
   },
   "keywords": [],
   "author": "",
   "license": "MIT",
   "devDependencies": {
     "concurrently": "^8.2.2",
+    "jsdoc": "^4.0.5",
+    "typedoc": "^0.28.17",
+    "typedoc-plugin-missing-exports": "^4.1.2",
     "typescript": "^5.3.3",
     "vitest": "^1.2.2",
     "wait-on": "^9.0.3"

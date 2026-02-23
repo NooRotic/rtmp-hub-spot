@@ -6,6 +6,21 @@ export const isElectron = typeof window !== 'undefined' &&
                           (navigator.userAgent.toLowerCase().indexOf(' electron/') > -1 || 
                            (window as any).process?.versions?.electron);
 
+/**
+ * Hook to manage Socket.io signaling and Simple-Peer connections for a Full Mesh WebRTC network.
+ * 
+ * Supports dynamically switching camera tracks or substituting entirely synthetic overrides (e.g. Grid capture streams).
+ * 
+ * @param {string} roomId - The specific socket room to join. The hub forces this to 'main-hub'.
+ * @param {Object} options - Configuration overrides.
+ * @param {string} [options.videoId] - Device ID for the local camera.
+ * @param {string} [options.audioId] - Device ID for the local microphone.
+ * @param {string} [options.userName] - Display name emitted across the signal transport.
+ * @param {string} [options.cameraLabel] - Detailed label summarizing the selected hardware for the UI.
+ * @param {boolean} [options.captureVideo] - Determines if the hook should automatically request system getUserMedia constraints upon mount.
+ * @param {RTCIceServer[]} [options.iceServers] - Override default google ICE servers for NAT traversal.
+ * @param {MediaStream|null} [options.overrideStream] - A synthetic MediaStream that circumvents the getUserMedia flow (used heavily by the Admin Grid).
+ */
 export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?: string; userName?: string; cameraLabel?: string; captureVideo?: boolean; iceServers?: RTCIceServer[]; overrideStream?: MediaStream | null } = {}) => {
   const { videoId, audioId, userName, cameraLabel, captureVideo, iceServers, overrideStream } = options;
   const [peers, setPeers] = useState<{ id: string; name: string; peer: any; stream?: MediaStream }[]>([]);
@@ -51,6 +66,13 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
     }
   };
 
+  /**
+   * Initializes WebSocket communication to the Signaling Server.
+   * Upon successful connection, registers the client internally and emits a `join-room`.
+   * Automatically sets up hooks for ICE candidates, Offer/Answer renegotiation, and Peer pruning.
+   * 
+   * @returns {void}
+   */
   const connect = () => {
     if (isConnected) return;
     setSocketStatus('connecting');
@@ -163,6 +185,10 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
     });
   };
 
+  /**
+   * Destroys all active P2P connections and cleanly disconnects the local signaling websocket.
+   * @returns {void}
+   */
   const disconnect = () => {
     if (socketRef.current) {
       socketRef.current.disconnect();
@@ -290,6 +316,14 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
     }
   }, [userStream, isVideoEnabled, isAudioEnabled]);
 
+  /**
+   * Universal binder for simple-peer events (sdp signals, stream tracks, connection states, erors).
+   * DRY abstraction to guarantee predictable stream propagation across both Peer Initiators and Receivers.
+   * 
+   * @param {Peer.Instance} peer - The instantiated simple-peer class object.
+   * @param {string} remoteId - The socket.id of the remote participant across the transport loop.
+   * @param {string} name - The human readable alias of the remote participant.
+   */
   function bindPeerEvents(peer: Peer.Instance, remoteId: string, name: string) {
     peer.on('signal', (signal: any) => {
       console.log(`[WebRTC] Local Signal (${signal.type}) for ${name}`);
