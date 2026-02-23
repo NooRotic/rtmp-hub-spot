@@ -12,9 +12,20 @@ interface GridViewProps {
     hwAccel: string;
   };
   autoLayout?: boolean;
+  showWatermark?: boolean;
+  watermarkPos?: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+  showSettingsOverlay?: boolean;
 }
 
-const GridView: React.FC<GridViewProps> = ({ streams, onStreamUpdate, broadcastSettings, autoLayout = true }) => {
+const GridView: React.FC<GridViewProps> = ({ 
+  streams, 
+  onStreamUpdate, 
+  broadcastSettings, 
+  autoLayout = true,
+  showWatermark = false,
+  watermarkPos = 'bottom-right',
+  showSettingsOverlay = false
+}) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isPiping, setIsPiping] = useState(false);
@@ -138,10 +149,53 @@ const GridView: React.FC<GridViewProps> = ({ streams, onStreamUpdate, broadcastS
 
       // Internal Status (Diagnostic)
       ctx.fillStyle = 'rgba(0, 255, 0, 0.3)';
-      ctx.fillRect(5, 460, 150, 15);
+      ctx.fillRect(5, canvas.height - 20, 150, 15);
       ctx.fillStyle = '#0f0';
       ctx.font = '10px Courier New';
-      ctx.fillText(`GRID ACTIVE: ${count} FEEDS`, 10, 472);
+      ctx.fillText(`GRID ACTIVE: ${count} FEEDS`, 10, canvas.height - 8);
+
+      // Diagnostic Overlay (Burn-in Settings)
+      if (showSettingsOverlay && broadcastSettings) {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+        ctx.fillRect(5, 5, 200, 50);
+        ctx.fillStyle = '#0f0';
+        ctx.font = '12px Courier New';
+        ctx.fillText(`BITRATE: ${broadcastSettings.bitrate}`, 10, 20);
+        ctx.fillText(`PRESET:  ${broadcastSettings.preset}`, 10, 35);
+        ctx.fillText(`ENC/HW:  ${broadcastSettings.hwAccel}`, 10, 50);
+      }
+
+      // Timestamp Watermark
+      if (showWatermark) {
+        const timestamp = new Date().toLocaleString();
+        ctx.font = 'bold 18px Tahoma';
+        const txtWidth = ctx.measureText(timestamp).width;
+        let x = 0, y = 0;
+        
+        switch (watermarkPos) {
+          case 'top-left':
+            x = 10;
+            y = 25;
+            break;
+          case 'top-right':
+            x = canvas.width - txtWidth - 10;
+            y = 25;
+            break;
+          case 'bottom-left':
+            x = 10;
+            y = canvas.height - 35;
+            break;
+          case 'bottom-right':
+            x = canvas.width - txtWidth - 10;
+            y = canvas.height - 35;
+            break;
+        }
+
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+        ctx.fillRect(x - 5, y - 18, txtWidth + 10, 24);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(timestamp, x, y);
+      }
 
       // Cleanup videos for streams that are gone
       if (!tempVideosRef.current) return;

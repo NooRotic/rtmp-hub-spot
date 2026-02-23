@@ -9,8 +9,15 @@ const http = require('http');
 const express = require('express');
 const ffmpeg = require('fluent-ffmpeg');
 const ffmpegStatic = require('ffmpeg-static');
+require('dotenv').config();
 
 ffmpeg.setFfmpegPath(ffmpegStatic);
+
+// Env configs
+const RTMP_PORT = process.env.RTMP_PORT || 1935;
+const NMS_HTTP_PORT = process.env.NMS_HTTP_PORT || 8000;
+const SIGNALING_PORT = process.env.PORT || 4001;
+const BIND_IP = process.env.BIND_IP || '0.0.0.0';
 
 // SSL certificate generation will happen right before server creation
 
@@ -39,18 +46,18 @@ function createWindow() {
 app.commandLine.appendSwitch('ignore-certificate-errors');
 
 const nmsConfig = {
-  bind: '0.0.0.0', // Set the bind IP for the entire server
+  bind: BIND_IP, // Set the bind IP for the entire server
   rtmp: {
-    port: 1935,
-    host: '0.0.0.0',
+    port: RTMP_PORT,
+    host: BIND_IP,
     chunk_size: 4096, // Reduced from 60000 for lower latency
     gop_cache: false, // Disable GOP cache to reduce start-up latency
     ping: 30,
     ping_timeout: 60
   },
   http: {
-    port: 8000,
-    host: '0.0.0.0',
+    port: NMS_HTTP_PORT,
+    host: BIND_IP,
     allow_origin: '*'
   },
   basePath: './media' // Ensure a base path exists
@@ -81,7 +88,7 @@ async function initializeServer() {
     key: sslPems.private,
     cert: sslPems.cert
   }, expressApp);
-  console.log('[SSL] HTTPS server created on 4001');
+  console.log(`[SSL] HTTPS server created on ${SIGNALING_PORT}`);
 
   // Serve the React client production build
   const clientPath = path.join(__dirname, '../client/dist');
@@ -173,14 +180,27 @@ initializeServer().then(({ nms, server, io }) => {
     try {
       const networkInterfaces = os.networkInterfaces();
       let localIP = '127.0.0.1';
+      // Priority list for interface names to prefer (e.g., Ethernet, Wi-Fi)
+      const preferredInterfaces = ['Ethernet', 'Wi-Fi', 'en0', 'wlan0'];
+      
       for (const name in networkInterfaces) {
         for (const iface of networkInterfaces[name]) {
+          // Skip internal (loopback) and non-IPv4 addresses
           if (iface.family === 'IPv4' && !iface.internal) {
-            localIP = iface.address;
-            break;
+            // If we find a preferred interface, use it and stop
+            if (preferredInterfaces.some(pref => name.includes(pref))) {
+              localIP = iface.address;
+              break;
+            }
+            // Otherwise, keep the first external one we found
+            if (localIP === '127.0.0.1') {
+              localIP = iface.address;
+            }
           }
         }
+        if (localIP !== '127.0.0.1' && preferredInterfaces.some(pref => name.includes(pref))) break;
       }
+      console.log('[STATUS] Discovered Local IP:', localIP);
 
       const sessions = Array.from(rtmpSessions.keys()).map(id => getSessionData(id));
 
@@ -266,8 +286,8 @@ initializeServer().then(({ nms, server, io }) => {
     broadcastStatus();
   });
 
-  server.listen(4001, '0.0.0.0', () => {
-    console.log('Signaling server listening on HTTPS 0.0.0.0:4001');
+  server.listen(SIGNALING_PORT, BIND_IP, () => {
+    console.log(`Signaling server listening on HTTPS ${BIND_IP}:${SIGNALING_PORT}`);
   });
 
   // Cleanup on app quit
@@ -300,7 +320,7 @@ ipcMain.on('start-virtual-cam', (event, streamUrl) => {
       '-pix_fmt yuv420p',
       '-g 30'
     ])
-    .output('rtmp://localhost:1935/live/admin')
+    .output(`rtmp://localhost:${RTMP_PORT}/live/admin`)
     .on('start', (commandLine) => {
       console.log('Spawned FFmpeg with command: ' + commandLine);
     })
@@ -377,7 +397,7 @@ ipcMain.on('ffmpeg-pipe-start', (event, options = {}) => {
       `-r ${fps}`,              // User-defined framerate
       '-an'
     ])
-    .output(`rtmp://localhost:1935/live/${streamKey}`)
+    .output(`rtmp://localhost:${RTMP_PORT}/live/${streamKey}`)
     .on('start', (cmd) => console.log('[FFMPEG] Pipe started:', cmd))
     .on('stderr', (line) => console.log('[FFMPEG-STDERR]', line))
     .on('error', (err) => {
@@ -387,6 +407,7 @@ ipcMain.on('ffmpeg-pipe-start', (event, options = {}) => {
     .run();
 });
 
+let internalChunkCount = 0;
 ipcMain.on('ffmpeg-pipe-chunk', (event, data) => {
   const { chunk, streamKey } = data;
   if (!videoStream || streamKey !== activeStreamKey) {
@@ -394,6 +415,11 @@ ipcMain.on('ffmpeg-pipe-chunk', (event, data) => {
   }
   const buffer = Buffer.from(chunk);
   videoStream.write(buffer);
+  
+  internalChunkCount++;
+  if (internalChunkCount <= 5 || internalChunkCount % 50 === 0) {
+    console.log(`[IPC] Received chunk #${internalChunkCount} (${buffer.length} bytes) for ${streamKey}`);
+  }
 });
 
 ipcMain.on('ffmpeg-pipe-stop', () => {

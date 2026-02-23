@@ -93,6 +93,11 @@ function App() {
   const [broadcastPreset, setBroadcastPreset] = useState<string>('ultrafast');
   const [hwAccel, setHwAccel] = useState<string>('none');
   
+  // Grid Overlay Settings
+  const [showWatermark, setShowWatermark] = useState<boolean>(false);
+  const [watermarkPos, setWatermarkPos] = useState<'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'>('bottom-right');
+  const [showSettingsOverlay, setShowSettingsOverlay] = useState<boolean>(false);
+  
   usePersistence(selectedVideo, selectedAudio);
   
   const { videoDevices, audioDevices } = useMediaDevices();
@@ -247,6 +252,37 @@ function App() {
                           type="checkbox" 
                           checked={gridAutoLayout} 
                           onChange={(e) => setGridAutoLayout(e.target.checked)}
+                        />
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '5px' }}>
+                        <span>Timestamp Watermark:</span>
+                        <input 
+                          type="checkbox" 
+                          checked={showWatermark} 
+                          onChange={(e) => setShowWatermark(e.target.checked)}
+                        />
+                      </div>
+                      {showWatermark && (
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '5px' }}>
+                          <span>Watermark Pos:</span>
+                          <select 
+                            value={watermarkPos} 
+                            onChange={(e) => setWatermarkPos(e.target.value as any)}
+                            style={{ fontSize: '9px', padding: '1px' }}
+                          >
+                            <option value="top-left">Top Left</option>
+                            <option value="top-right">Top Right</option>
+                            <option value="bottom-left">Bottom Left</option>
+                            <option value="bottom-right">Bottom Right</option>
+                          </select>
+                        </div>
+                      )}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '5px' }}>
+                        <span>Burn-in Settings:</span>
+                        <input 
+                          type="checkbox" 
+                          checked={showSettingsOverlay} 
+                          onChange={(e) => setShowSettingsOverlay(e.target.checked)}
                         />
                       </div>
                     </div>
@@ -475,6 +511,9 @@ function App() {
                     hwAccel: hwAccel
                   }}
                   autoLayout={gridAutoLayout}
+                  showWatermark={showWatermark}
+                  watermarkPos={watermarkPos}
+                  showSettingsOverlay={showSettingsOverlay}
                 />
               )}
               

@@ -91,6 +91,7 @@ The application is a monorepo containing:
 
 - **Feature**: Admin can manually select which feeds appear in the composite grid.
 - **Implementation**: `App.tsx` manages a `gridMembers` Set. `GridView` filters streams based on this set.
+- **Diagnostics & Overlays**: The GridView canvas supports drawing a timestamp watermark and a "Burn-in Settings" diagnostic overlay (Bitrate, Preset, Hardware Acceleration). These are drawn directly onto the canvas in the `requestAnimationFrame` loop _before_ `captureStream(30)` sends the feed to FFmpeg.
 
 ## 5. Future Development Guidelines
 

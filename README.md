@@ -38,7 +38,13 @@ cd rtmp-hub-spot
 
 # Install dependencies
 npm install
+
+# Setup environment variables
+cp packages/client/.env.example packages/client/.env
+cp packages/server/.env.example packages/server/.env
 ```
+
+_Note: Edit the `.env` files if you need to change the default ports (4001, 1935, 8000)._
 
 ### Running the App
 
@@ -65,7 +71,7 @@ Launch the application (`npm run dev`). The Admin window will open.
 
 Look at the **Active RTMP Links** section in the sidebar. You will see links like:
 
-- **Grid**: `rtmp://localhost/live/grid`
+- **Grid**: `rtmp://localhost/live/grid` (or `rtmp://<YOUR_LAN_IP>/live/grid` for network access)
 - **User Feed**: `rtmp://localhost/live/feed-username`
 
 ### 3. Configure OBS Studio
