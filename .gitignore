@@ -5,7 +5,7 @@ build/
 *.env.local
 *.log
 .DS_Store
-package-lock.json
+# package-lock.json (removed from ignore)
 jsDocs/
 .claude/
 CLAUDE.md
