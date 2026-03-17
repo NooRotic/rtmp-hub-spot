@@ -7,7 +7,8 @@
     "start": "electron .",
     "dev": "electron .",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "dist": "electron-builder"
   },
   "keywords": [],
   "author": "",
@@ -30,5 +31,22 @@
     "node-media-server": "^4.2.4",
     "selfsigned": "^5.5.0",
     "socket.io": "^4.8.3"
+  },
+  "build": {
+    "productName": "RTMP Hub Spot",
+    "appId": "com.noorotic.rtmphubspot",
+    "directories": {
+      "output": "../../dist"
+    },
+    "files": [
+      "main.js",
+      "package.json",
+      "assets/**/*",
+      "../client/dist/**/*"
+    ],
+    "win": {
+      "icon": "assets/icon.png",
+      "target": "portable"
+    }
   }
 }
