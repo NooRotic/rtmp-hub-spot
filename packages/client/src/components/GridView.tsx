@@ -15,17 +15,24 @@ interface GridViewProps {
   showWatermark?: boolean;
   watermarkPos?: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
   showSettingsOverlay?: boolean;
+  /** The real LAN IP of the server, used to build the RTMP display URL. */
+  serverLocalIP?: string;
+  /** When set, this stream occupies 80% of the canvas; others fill a 20% bottom strip. */
+  spotlightId?: string;
 }
 
-const GridView: React.FC<GridViewProps> = ({ 
-  streams, 
-  onStreamUpdate, 
-  broadcastSettings, 
+const GridView: React.FC<GridViewProps> = ({
+  streams,
+  onStreamUpdate,
+  broadcastSettings,
   autoLayout = true,
   showWatermark = false,
   watermarkPos = 'bottom-right',
-  showSettingsOverlay = false
+  showSettingsOverlay = false,
+  serverLocalIP,
+  spotlightId
 }) => {
+  const rtmpHost = serverLocalIP || window.location.hostname;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isPiping, setIsPiping] = useState(false);
@@ -98,7 +105,7 @@ const GridView: React.FC<GridViewProps> = ({
 
     const draw = () => {
       const count = activeStreams.length;
-      
+
       // Clear background
       ctx.fillStyle = '#1e1e1e';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -111,41 +118,96 @@ const GridView: React.FC<GridViewProps> = ({
         return;
       }
 
-      // Calculate grid (e.g., 2x2 for 4 streams)
-      const cols = Math.ceil(Math.sqrt(count));
-      const rows = Math.ceil(count / cols);
-      const w = canvas.width / cols;
-      const h = canvas.height / rows;
+      const spotlightStream = spotlightId ? activeStreams.find(s => s.id === spotlightId) : null;
 
-      activeStreams.forEach((s, i) => {
-        if (!s.stream) return;
-        const x = (i % cols) * w;
-        const y = Math.floor(i / cols) * h;
-        
-        if (!tempVideosRef.current) return;
+      const ensureVideo = (s: { id: string; stream: MediaStream | undefined; label: string }) => {
+        if (!tempVideosRef.current || !s.stream) return null;
         let video = tempVideosRef.current.get(s.id);
         if (!video || video.srcObject !== s.stream) {
-          if (video) {
-            video.srcObject = null;
-          }
+          if (video) video.srcObject = null;
           video = document.createElement('video');
           video.srcObject = s.stream;
           video.muted = true;
           video.play().catch(() => {});
           tempVideosRef.current.set(s.id, video);
         }
+        return video;
+      };
 
-        if (video.readyState >= 2) {
-          ctx.drawImage(video, x, y, w, h);
-          
-          // Draw Label
-          ctx.fillStyle = 'rgba(0,0,0,0.5)';
-          ctx.fillRect(x, y, 100, 20);
+      if (spotlightStream) {
+        // ── Spotlight layout: 80% main + 20% thumbnail strip ────────────────
+        const mainH = Math.floor(canvas.height * 0.8);
+        const stripY = mainH;
+        const stripH = canvas.height - mainH;
+        const otherStreams = activeStreams.filter(s => s.id !== spotlightId);
+
+        // Draw spotlight stream
+        const mainVid = ensureVideo(spotlightStream);
+        if (mainVid && mainVid.readyState >= 2) {
+          ctx.drawImage(mainVid, 0, 0, canvas.width, mainH);
+          // Name badge
+          ctx.fillStyle = 'rgba(0,0,0,0.55)';
+          ctx.fillRect(0, 0, 180, 26);
           ctx.fillStyle = '#fff';
-          ctx.font = '12px Tahoma';
-          ctx.fillText(s.label, x + 5, y + 15);
+          ctx.font = 'bold 13px Tahoma';
+          ctx.fillText(spotlightStream.label, 6, 18);
+          // LIVE badge top-right
+          ctx.fillStyle = '#cc0000';
+          ctx.fillRect(canvas.width - 68, 6, 60, 18);
+          ctx.fillStyle = '#fff';
+          ctx.font = 'bold 11px Tahoma';
+          ctx.fillText('◉ LIVE', canvas.width - 62, 19);
         }
-      });
+
+        // Separator line
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, stripY, canvas.width, 2);
+
+        // Draw thumbnail strip
+        if (otherStreams.length > 0) {
+          const thumbW = canvas.width / otherStreams.length;
+          otherStreams.forEach((s, i) => {
+            const vid = ensureVideo(s);
+            if (vid && vid.readyState >= 2) {
+              ctx.drawImage(vid, i * thumbW, stripY + 2, thumbW, stripH - 2);
+              ctx.fillStyle = 'rgba(0,0,0,0.5)';
+              ctx.fillRect(i * thumbW, stripY + 2, 90, 16);
+              ctx.fillStyle = '#ccc';
+              ctx.font = '10px Tahoma';
+              ctx.fillText(s.label, i * thumbW + 4, stripY + 14);
+            }
+            // Thumbnail separator
+            if (i > 0) {
+              ctx.fillStyle = '#555';
+              ctx.fillRect(i * thumbW, stripY, 1, stripH);
+            }
+          });
+        }
+      } else {
+        // ── Standard auto-grid layout ────────────────────────────────────────
+        const cols = Math.ceil(Math.sqrt(count));
+        const rows = Math.ceil(count / cols);
+        const w = canvas.width / cols;
+        const h = canvas.height / rows;
+
+        activeStreams.forEach((s, i) => {
+          if (!s.stream) return;
+          const x = (i % cols) * w;
+          const y = Math.floor(i / cols) * h;
+
+          const video = ensureVideo(s);
+          if (video && video.readyState >= 2) {
+            ctx.drawImage(video, x, y, w, h);
+
+            // Draw Label
+            ctx.fillStyle = 'rgba(0,0,0,0.5)';
+            ctx.fillRect(x, y, 100, 20);
+            ctx.fillStyle = '#fff';
+            ctx.font = '12px Tahoma';
+            ctx.fillText(s.label, x + 5, y + 15);
+          }
+        });
+      }
 
       // Internal Status (Diagnostic)
       ctx.fillStyle = 'rgba(0, 255, 0, 0.3)';
@@ -216,7 +278,7 @@ const GridView: React.FC<GridViewProps> = ({
     return () => {
       if (requestRef.current) cancelAnimationFrame(requestRef.current);
     };
-  }, [activeStreams]);
+  }, [activeStreams, spotlightId]);
 
   const toggleGridPipe = () => {
     if (!ipc || !canvasRef.current) return;
@@ -229,47 +291,60 @@ const GridView: React.FC<GridViewProps> = ({
       if (mediaRecorderRef.current) {
         mediaRecorderRef.current.stop();
       }
-      
-      ipc.send('ffmpeg-pipe-start', {
-        ...broadcastSettings,
-        streamKey: 'grid'
-      });
+
       console.log('[GridView] Starting MediaRecorder for Grid Broadcast...');
-      
+
       const stream = canvasRef.current.captureStream(30);
       let recorder: MediaRecorder;
       try {
-        const options = { mimeType: 'video/webm' };
-        if (MediaRecorder.isTypeSupported('video/webm; codecs=vp8')) {
-          (options as any).codecs = 'vp8';
-        }
-        recorder = new MediaRecorder(stream, options);
+        // Prefer vp8 explicitly — ensures stable WebM container structure
+        const mimeType = MediaRecorder.isTypeSupported('video/webm; codecs=vp8')
+          ? 'video/webm; codecs=vp8'
+          : 'video/webm';
+        recorder = new MediaRecorder(stream, { mimeType });
         console.log('[GridView] MediaRecorder created with:', recorder.mimeType);
       } catch (e: any) {
         console.error('[GridView] Failed to create MediaRecorder:', e);
         return;
       }
-      
+
       let chunkCount = 0;
+      let pipeStarted = false;
+
       recorder.ondataavailable = async (event) => {
-        if (event.data.size > 0) {
-          try {
-            const buffer = await event.data.arrayBuffer();
-            const uint8 = new Uint8Array(buffer);
-            chunkCount++;
-            if (chunkCount < 10) {
-              console.log(`[GridView] Sending chunk #${chunkCount}: ${uint8.length} bytes for grid`);
-            }
-            ipc.send('ffmpeg-pipe-chunk', { chunk: uint8, streamKey: 'grid' });
-          } catch (err) {
-            console.error('[GridView] Error processing chunk:', err);
+        if (event.data.size === 0) return;
+        try {
+          const buffer = await event.data.arrayBuffer();
+          const uint8 = new Uint8Array(buffer);
+          chunkCount++;
+
+          if (!pipeStarted) {
+            // Start FFmpeg ONLY after we have the first chunk, which always
+            // contains the WebM initialization segment (EBML header + keyframe).
+            // This prevents "Discarding interframe without a prior keyframe" errors.
+            console.log('[GridView] First chunk received — starting FFmpeg pipe.');
+            ipc.send('ffmpeg-pipe-start', {
+              ...broadcastSettings,
+              streamKey: 'grid'
+            });
+            pipeStarted = true;
+            // Give FFmpeg ~100ms to initialize its stdin before writing
+            await new Promise(r => setTimeout(r, 100));
           }
+
+          if (chunkCount <= 10) {
+            console.log(`[GridView] Sending chunk #${chunkCount}: ${uint8.length} bytes for grid`);
+          }
+          ipc.send('ffmpeg-pipe-chunk', { chunk: uint8, streamKey: 'grid' });
+        } catch (err) {
+          console.error('[GridView] Error processing chunk:', err);
         }
       };
-      
+
       recorder.onerror = (err) => console.error('[GridView] MediaRecorder error:', err);
-      
-      recorder.start(200); // 200ms chunks for stability
+
+      // 500ms chunks give FFmpeg a bigger initial block containing the full header
+      recorder.start(500);
       mediaRecorderRef.current = recorder;
       setIsPiping(true);
     }
@@ -300,7 +375,7 @@ const GridView: React.FC<GridViewProps> = ({
       >
         <div style={{ fontSize: '10px', color: '#ccc', marginBottom: '5px', zIndex: 5 }}>
           {isPiping ? (
-            <span>RTMP LIVE: <strong style={{color: '#00ff00'}}>rtmp://{window.location.hostname}/live/grid</strong></span>
+            <span>RTMP LIVE: <strong style={{color: '#00ff00'}}>rtmp://{rtmpHost}/live/grid</strong></span>
           ) : (
             <span>Ready to pipe to local RTMP (Source for OBS)</span>
           )}

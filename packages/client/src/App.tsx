@@ -4,7 +4,25 @@ import { useMediaDevices } from './hooks/useMediaDevices';
 import VideoFeed from './components/VideoFeed';
 import GridView from './components/GridView';
 import ChatBox from './components/ChatBox';
+import Lobby from './components/Lobby';
 import mpegts from 'mpegts.js';
+
+/**
+ * Inline RTMP preview player using mpegts.js for a single publisher stream.
+ * Self-contained: attaches/destroys its own mpegts instance.
+ */
+const RtmpPlayerTile = ({ streamKey, host }: { streamKey: string; host: string }) => {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    if (!videoRef.current || !mpegts.getFeatureList().mseLivePlayback) return;
+    const player = mpegts.createPlayer({ type: 'flv', isLive: true, url: `http://${host}:8000/live/${streamKey}.flv` });
+    player.attachMediaElement(videoRef.current);
+    player.load();
+    void (player.play() as unknown as Promise<void>)?.catch(() => {});
+    return () => { try { player.destroy(); } catch (_) {} };
+  }, [streamKey, host]);
+  return <video ref={videoRef} autoPlay muted playsInline style={{ width: '100%', maxHeight: '120px', background: '#000', display: 'block', marginTop: '4px' }} />;
+};
 
 // Effect for persistence
 export function usePersistence(selectedVideo: string, selectedAudio: string) {
@@ -80,11 +98,22 @@ function App() {
            ((window as any).require ? (window as any).require('electron').ipcRenderer : null);
   }, [isElectron]);
 
+  /** True when running in admin capacity — either Electron or browser with ?role=admin query param. */
+  const isAdminMode = useMemo(() => {
+    if (isElectron) return true;
+    if (typeof window === 'undefined') return false;
+    return new URLSearchParams(window.location.search).get('role') === 'admin';
+  }, [isElectron]);
+
   const { width: sidebarWidth, startResizing } = useResizableSidebar(250);
 
   // Grid management state
   const [gridMembers, setGridMembers] = useState<Set<string>>(new Set(['local']));
   const [gridAutoLayout, setGridAutoLayout] = useState(true);
+  const [lobbyDone, setLobbyDone] = useState(() => isElectron || isAdminMode); // Electron and admin monitor skip lobby
+  const [spotlightId, setSpotlightId] = useState<string | null>(null);
+  const [previewOpen, setPreviewOpen] = useState<Set<string>>(new Set());
+  const pendingConnectRef = useRef(false);
 
   const toggleGridMember = (id: string) => {
     setGridMembers(prev => {
@@ -96,7 +125,11 @@ function App() {
   };
   const [selectedVideo, setSelectedVideo] = useState<string>(localStorage.getItem('hub-video-device') || '');
   const [selectedAudio, setSelectedAudio] = useState<string>(localStorage.getItem('hub-audio-device') || '');
-  const [userName, setUserName] = useState<string>(isElectron ? 'Admin' : (localStorage.getItem('hub-username') || ''));
+  const [userName, setUserName] = useState<string>(() => {
+    if (isElectron) return 'Admin';
+    if (isAdminMode) return 'Admin Monitor';
+    return localStorage.getItem('hub-username') || '';
+  });
   const [adminCamActive, setAdminCamActive] = useState<boolean>(false);
   const [localCameraActive, setLocalCameraActive] = useState<boolean>(false);
   const [showGrid, setShowGrid] = useState<boolean>(isElectron); // Default ON for admin
@@ -107,7 +140,23 @@ function App() {
   const [broadcastBitrate, setBroadcastBitrate] = useState<string>('2500k');
   const [broadcastPreset, setBroadcastPreset] = useState<string>('ultrafast');
   const [hwAccel, setHwAccel] = useState<string>('none');
+  const [detectedEncoder, setDetectedEncoder] = useState<{ best: string; bestLabel: string; available: string[] } | null>(null);
   
+  // Recording
+  const [activeRecordings, setActiveRecordings] = useState<{ streamKey: string; path: string; startTime: number }[]>([]);
+  const [recNow, setRecNow] = useState(Date.now());
+
+  // FFmpeg pipeline health
+  const [ffmpegStatus, setFfmpegStatus] = useState<{
+    state: 'idle' | 'starting' | 'running' | 'error' | 'stopped';
+    streamKey: string | null;
+    message?: string;
+  }>({ state: 'idle', streamKey: null });
+  const [ffmpegStats, setFfmpegStats] = useState<{
+    frame: number; fps: number; bitrate: string;
+    speed: number; time: string; size: string; streamKey: string;
+  } | null>(null);
+
   // Grid Overlay Settings
   const [showWatermark, setShowWatermark] = useState<boolean>(false);
   const [watermarkPos, setWatermarkPos] = useState<'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'>('bottom-right');
@@ -127,7 +176,7 @@ function App() {
   const cameraLabel = currentVideoDevice?.label || (isElectron ? 'Admin Hub' : 'Default Camera');
   const broadcastLabel = isGridShared ? 'Composite Grid' : cameraLabel;
 
-  const { serverStatus, isConnected, socketStatus, peers, userStream, isVideoEnabled, setIsVideoEnabled, isAudioEnabled, setIsAudioEnabled, chatMessages, sendMessage, disconnect, connect } = useWebRTC('main-hub', {
+  const { serverStatus, isConnected, socketStatus, peers, userStream, isVideoEnabled, setIsVideoEnabled, isAudioEnabled, setIsAudioEnabled, chatMessages, sendMessage, disconnect, connect, recordingStopped, wasKicked, kickUser, isLive } = useWebRTC('main-hub', {
     videoId: (isElectron ? (adminCamActive ? selectedVideo : undefined) : (localCameraActive ? (selectedVideo || undefined) : undefined)),
     audioId: (isElectron ? (adminCamActive ? selectedAudio : undefined) : (localCameraActive ? (selectedAudio || undefined) : undefined)),
     userName: userName,
@@ -145,12 +194,37 @@ function App() {
     connect();
   };
 
+  const handleLobbyJoin = (name: string) => {
+    setUserName(name);
+    localStorage.setItem('hub-username', name);
+    setLocalCameraActive(true);
+    setLobbyDone(true);
+    pendingConnectRef.current = true;
+  };
+
+  // Browser admin monitor auto-connect. Electron auto-connects via the useWebRTC hook itself.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (isElectron && !isConnected) {
-      console.log('[App] Auto-connecting Electron Admin...');
+    if (!isElectron && isAdminMode && !isConnected) {
       connect();
     }
-  }, [isElectron, isConnected]);
+  }, [isAdminMode, isElectron, isConnected]);
+
+  // Connect after lobby sets userName (state update is async, so we use a ref flag)
+  useEffect(() => {
+    if (pendingConnectRef.current && lobbyDone && userName) {
+      pendingConnectRef.current = false;
+      connect();
+    }
+  }, [userName, lobbyDone]);
+
+  // When kicked: reset non-admin browser clients to lobby state
+  useEffect(() => {
+    if (wasKicked && !isAdminMode) {
+      setLobbyDone(false);
+      setLocalCameraActive(false);
+    }
+  }, [wasKicked, isAdminMode]);
 
   const refreshTelemetry = () => {
     if (ipc) {
@@ -166,6 +240,76 @@ function App() {
       return () => clearInterval(interval);
     }
   }, [isElectron, ipc]);
+
+  // GPU Encoder Auto-Detection (Electron only, runs once on startup)
+  useEffect(() => {
+    if (!isElectron || !ipc) return;
+    ipc.invoke('detect-gpu-encoder')
+      .then((result: { best: string; bestLabel: string; available: string[] }) => {
+        console.log('[App] GPU encoder detection result:', result);
+        setDetectedEncoder(result);
+        // Only auto-set if user hasn't already picked something (we start at 'none')
+        setHwAccel(prev => prev === 'none' ? result.best : prev);
+      })
+      .catch((err: any) => {
+        console.error('[App] GPU detection failed:', err);
+      });
+  }, [isElectron, ipc]);
+
+  // Listen for FFmpeg pipeline state and stats from the Electron main process
+  useEffect(() => {
+    if (!ipc) return;
+    const handleStatus = (_: any, data: { state: 'idle' | 'starting' | 'running' | 'error' | 'stopped'; streamKey: string | null; message?: string }) => {
+      setFfmpegStatus(data);
+      if (data.state !== 'running') setFfmpegStats(null);
+    };
+    const handleStats = (_: any, data: typeof ffmpegStats) => {
+      setFfmpegStats(data);
+    };
+    ipc.on('ffmpeg-status', handleStatus);
+    ipc.on('ffmpeg-stats', handleStats);
+    return () => {
+      ipc.removeListener('ffmpeg-status', handleStatus);
+      ipc.removeListener('ffmpeg-stats', handleStats);
+    };
+  }, [ipc]);
+
+  // Tick every second while recordings are active (for elapsed time display)
+  useEffect(() => {
+    if (activeRecordings.length === 0) return;
+    const t = setInterval(() => setRecNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [activeRecordings.length]);
+
+  // Recording helpers
+  const startRecording = async (streamKey: string) => {
+    if (!ipc) return;
+    try {
+      const result = await ipc.invoke('start-recording', { streamKey });
+      if (result.success) {
+        setActiveRecordings(prev => [...prev, { streamKey, path: result.path, startTime: Date.now() }]);
+      } else {
+        console.error('[REC] Start failed:', result.error);
+      }
+    } catch (e) { console.error('[REC] IPC error:', e); }
+  };
+
+  const stopRecording = (streamKey: string) => {
+    if (!ipc) return;
+    ipc.send('stop-recording', { streamKey });
+    setActiveRecordings(prev => prev.filter(r => r.streamKey !== streamKey));
+  };
+
+  const openRecordingsDir = () => {
+    if (!ipc) return;
+    ipc.send('open-recordings-dir');
+  };
+
+  // Sync recording state when the server auto-stops a recording (publisher disconnect, etc.)
+  useEffect(() => {
+    if (!recordingStopped) return;
+    setActiveRecordings(prev => prev.filter(r => r.streamKey !== recordingStopped.streamKey));
+  }, [recordingStopped]);
 
   /**
    * RTMP Synthetic Feed Effect
@@ -284,6 +428,18 @@ function App() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
+      {/* Pre-flight lobby for browser clients */}
+      {!isAdminMode && !lobbyDone && (
+        <Lobby
+          onJoin={handleLobbyJoin}
+          initialName={userName}
+          wasKicked={wasKicked}
+        />
+      )}
+      {/* "You are live" banner for connected clients */}
+      {!isElectron && !isAdminMode && isLive && (
+        <div className="live-banner">◉ YOU ARE LIVE</div>
+      )}
       {/* Draggable Title Bar (Electron Only) */}
       {isElectron && (
         <div className="app-title-bar">
@@ -299,10 +455,14 @@ function App() {
       )}
       
       {/* Top Status Bar */}
-      <div className="status-bar">
+      <div className="status-bar" style={{ flexWrap: 'wrap', rowGap: '4px' }}>
         <div className="status-item">
-          <div className={`status-led ${socketStatus === 'connected' ? 'led-on' : socketStatus === 'connecting' ? 'led-warn' : 'led-off'}`}></div>
-          Hub: {socketStatus.toUpperCase()}
+          <div className={`status-led ${
+            socketStatus === 'connected'    ? 'led-on' :
+            socketStatus === 'connecting'   ? 'led-warn' :
+            socketStatus === 'disconnected' ? 'led-warn' : 'led-off'
+          }`}></div>
+          Hub: {socketStatus === 'disconnected' ? 'RECONNECTING…' : socketStatus.toUpperCase()}
         </div>
         <div className="status-item">
           <div className={`status-led ${isConnected ? 'led-on' : 'led-off'}`}></div>
@@ -313,14 +473,14 @@ function App() {
             <div className="status-item">| Local: {serverStatus.local}</div>
             <div className="status-item">| Network: {serverStatus.public}</div>
             <div className="status-item">| Clients: {serverStatus.clientCount}</div>
-            <div className="status-item">| RTMP Players: {serverStatus.rtmpCount}</div>
+            <div className="status-item">| RTMP: {serverStatus.rtmpCount}</div>
           </>
         )}
       </div>
 
       <div className="main-layout" style={{ flex: 1, display: 'flex' }}>
-        {/* Side Panel (Admin Only) */}
-        {isElectron && (
+        {/* Side Panel (Admin + Admin Monitor) */}
+        {isAdminMode && (
           <>
             <div className="side-panel" style={{ width: `${sidebarWidth}px`, display: 'flex', flexDirection: 'column' }}>
               <div style={{ flex: 1, overflowY: 'auto', paddingRight: '5px' }}>
@@ -332,29 +492,107 @@ function App() {
                   <div><strong>Active RTMP</strong>: {serverStatus?.rtmpCount || 0} Viewer(s)</div>
                 </div>
 
+                {/* ── FFmpeg Pipeline Health ── */}
+                <h3 style={{ borderBottom: '1px solid #808080', marginTop: '10px' }}>FFmpeg Pipeline</h3>
+                <div className="inset-field" style={{ padding: '6px', fontSize: '10px', marginBottom: '10px' }}>
+                  {/* State indicator row */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginBottom: '5px' }}>
+                    <div style={{
+                      width: '10px', height: '10px', borderRadius: '50%', flexShrink: 0,
+                      backgroundColor:
+                        ffmpegStatus.state === 'running'  ? '#00dd00' :
+                        ffmpegStatus.state === 'starting' ? '#ffaa00' :
+                        ffmpegStatus.state === 'error'    ? '#ff3333' : '#555555',
+                      boxShadow:
+                        ffmpegStatus.state === 'running'  ? '0 0 5px #00dd00' :
+                        ffmpegStatus.state === 'starting' ? '0 0 5px #ffaa00' :
+                        ffmpegStatus.state === 'error'    ? '0 0 5px #ff3333' : 'none'
+                    }} />
+                    <span style={{ fontFamily: 'monospace', fontWeight: 'bold', letterSpacing: '0.5px' }}>
+                      {ffmpegStatus.state.toUpperCase()}
+                    </span>
+                    {ffmpegStatus.streamKey && (
+                      <span style={{ color: '#555', fontSize: '9px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        → {ffmpegStatus.streamKey}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Live stats — shown only while running */}
+                  {ffmpegStats ? (
+                    <div style={{
+                      background: '#111', color: '#00ee00', fontFamily: 'monospace',
+                      fontSize: '9px', padding: '5px 6px', lineHeight: '1.6',
+                      display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 10px'
+                    }}>
+                      <div>FRAME <strong style={{ color: '#fff' }}>{ffmpegStats.frame}</strong></div>
+                      <div>FPS <strong style={{ color: ffmpegStats.fps >= 25 ? '#00ee00' : '#ffaa00' }}>{ffmpegStats.fps.toFixed(1)}</strong></div>
+                      <div>RATE <strong style={{ color: '#fff' }}>{ffmpegStats.bitrate}</strong></div>
+                      <div>SPEED <strong style={{ color: ffmpegStats.speed >= 0.95 ? '#00ee00' : '#ff5555' }}>{ffmpegStats.speed.toFixed(2)}x</strong></div>
+                      <div style={{ gridColumn: '1 / -1' }}>
+                        TIME <strong style={{ color: '#aaa' }}>{ffmpegStats.time}</strong>
+                        <span style={{ marginLeft: '8px' }}>SIZE <strong style={{ color: '#aaa' }}>{ffmpegStats.size}</strong></span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ color: '#888', fontSize: '9px', fontFamily: 'monospace' }}>
+                      {ffmpegStatus.state === 'starting' && (ffmpegStatus.message || 'Initialising encoder…')}
+                      {ffmpegStatus.state === 'idle'     && 'No active broadcast.'}
+                      {ffmpegStatus.state === 'stopped'  && 'Broadcast stopped.'}
+                      {ffmpegStatus.state === 'error'    && (ffmpegStatus.message || 'FFmpeg error.')}
+                    </div>
+                  )}
+
+                  {/* Error detail */}
+                  {ffmpegStatus.state === 'error' && ffmpegStatus.message && (
+                    <div style={{ color: '#ff5555', fontSize: '8px', marginTop: '4px', wordBreak: 'break-word' }}>
+                      {ffmpegStatus.message}
+                    </div>
+                  )}
+                </div>
+
                 <h3 style={{ borderBottom: '1px solid #808080' }}>Connected Clients & Feeds</h3>
                 <div className="inset-field" style={{ height: '120px', overflowY: 'auto', fontSize: '10px', marginBottom: '10px' }}>
                   {peers.length === 0 && syntheticFeeds.length === 0 ? 'No clients connected.' : null}
                   {peers.map(p => (
-                    <div key={p.id} style={{ borderBottom: '1px solid #eee', padding: '2px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <div style={{ display: 'flex', alignItems: 'center' }}>
-                        <span style={{ marginRight: '5px' }}>⏺</span>
-                        <span>{p.name || p.id.slice(0, 8)}</span>
-                        {p.stream ? 
-                          <span style={{ color: '#00ff00', marginLeft: '5px', fontSize: '8px' }}>[VIDEO OK]</span> : 
-                          <span style={{ color: '#ff0000', marginLeft: '5px', fontSize: '8px' }}>[NO FEED]</span>
-                        }
+                    <div key={p.id} style={{ borderBottom: '1px solid #eee', padding: '2px 0' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '3px', overflow: 'hidden' }}>
+                          <span>⏺</span>
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '90px' }}>{p.name || p.id.slice(0, 8)}</span>
+                          {p.stream ?
+                            <span style={{ color: '#00ff00', fontSize: '8px', flexShrink: 0 }}>[OK]</span> :
+                            <span style={{ color: '#ff0000', fontSize: '8px', flexShrink: 0 }}>[–]</span>
+                          }
+                        </div>
+                        {isAdminMode && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+                            <label style={{ fontSize: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '2px' }}>
+                              <input
+                                type="checkbox"
+                                checked={gridMembers.has(p.id)}
+                                onChange={() => toggleGridMember(p.id)}
+                                style={{ margin: 0 }}
+                              /> Grid
+                            </label>
+                            <button
+                              onClick={() => setSpotlightId(prev => prev === p.id ? null : p.id)}
+                              title="Spotlight this feed in the grid"
+                              style={{
+                                fontSize: '8px', padding: '1px 4px', cursor: 'pointer',
+                                background: spotlightId === p.id ? '#004488' : '#e0e0e0',
+                                color: spotlightId === p.id ? '#fff' : '#000',
+                                border: '1px solid #808080'
+                              }}
+                            >★</button>
+                            <button
+                              onClick={() => kickUser(p.id)}
+                              title="Remove this user from the session"
+                              style={{ fontSize: '8px', padding: '1px 4px', cursor: 'pointer', background: '#ff000022', color: '#cc0000', border: '1px solid #cc0000' }}
+                            >✕</button>
+                          </div>
+                        )}
                       </div>
-                      {isElectron && (
-                        <label style={{ fontSize: '8px', cursor: 'pointer' }}>
-                          <input 
-                            type="checkbox" 
-                            checked={gridMembers.has(p.id)} 
-                            onChange={() => toggleGridMember(p.id)}
-                            style={{ margin: 0, verticalAlign: 'middle' }}
-                          /> Grid
-                        </label>
-                      )}
                     </div>
                   ))}
                   {syntheticFeeds.map(f => (
@@ -368,11 +606,11 @@ function App() {
                         }
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                        {isElectron && (
+                        {isAdminMode && (
                           <label style={{ fontSize: '8px', cursor: 'pointer' }}>
-                            <input 
-                              type="checkbox" 
-                              checked={gridMembers.has(f.id)} 
+                            <input
+                              type="checkbox"
+                              checked={gridMembers.has(f.id)}
                               onChange={() => toggleGridMember(f.id)}
                               style={{ margin: 0, verticalAlign: 'middle' }}
                             /> Grid
@@ -384,7 +622,7 @@ function App() {
                   ))}
                 </div>
 
-                {isElectron && (
+                {isAdminMode && (
                   <>
                     <h3 style={{ borderBottom: '1px solid #808080', marginTop: '15px' }}>Grid Controls</h3>
                     <div className="inset-field" style={{ padding: '5px', fontSize: '10px' }}>
@@ -439,7 +677,7 @@ function App() {
                   </>
                 )}
 
-                {isElectron && (
+                {isAdminMode && (
                   <>
                     <h3 style={{ borderBottom: '1px solid #808080', marginTop: '15px' }}>Add RTMP Feed</h3>
                     <div className="inset-field" style={{ padding: '5px', fontSize: '10px', marginBottom: '10px' }}>
@@ -468,18 +706,84 @@ function App() {
 
                 <h3 style={{ borderBottom: '1px solid #808080' }}>Active RTMP Links</h3>
                 <div className="inset-field" style={{ padding: '8px', fontSize: '10px', marginBottom: '10px', color: '#00ff00', fontFamily: 'monospace' }}>
-                  {isGridShared && isConnected && (
-                    <div style={{ marginBottom: '4px' }}>
-                      GRID: rtmp://{serverStatus?.local || 'localhost'}/live/grid
-                    </div>
-                  )}
-                  {peers.filter(p => p.stream).map(p => (
-                    <div key={p.id} style={{ marginBottom: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {p.name.split(' ')[0]}: rtmp://{serverStatus?.local || 'localhost'}/live/feed-{p.name.replace(/\s+/g, '-').toLowerCase()}
-                    </div>
-                  ))}
+                  {isGridShared && isConnected && (() => {
+                    const url = `rtmp://${serverStatus?.local || 'localhost'}/live/grid`;
+                    return (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>GRID: {url}</span>
+                        <button onClick={() => navigator.clipboard.writeText(url)} title="Copy to clipboard" style={{ fontSize: '8px', padding: '1px 5px', marginLeft: '4px', cursor: 'pointer', background: '#00440022', color: '#004400', border: '1px solid #006600', flexShrink: 0 }}>COPY</button>
+                      </div>
+                    );
+                  })()}
+                  {peers.filter(p => p.stream).map(p => {
+                    const url = `rtmp://${serverStatus?.local || 'localhost'}/live/feed-${p.name.replace(/\s+/g, '-').toLowerCase()}`;
+                    return (
+                      <div key={p.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2px' }}>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{p.name.split(' ')[0]}: {url}</span>
+                        <button onClick={() => navigator.clipboard.writeText(url)} title="Copy to clipboard" style={{ fontSize: '8px', padding: '1px 5px', marginLeft: '4px', cursor: 'pointer', background: '#00440022', color: '#004400', border: '1px solid #006600', flexShrink: 0 }}>COPY</button>
+                      </div>
+                    );
+                  })}
                   {!isGridShared && peers.filter(p => p.stream).length === 0 && (
                     <div style={{ color: '#888' }}>No active broadcasts.</div>
+                  )}
+                </div>
+
+                {/* Live Publishers — streams currently being ingested by RTMP server */}
+                <h3 style={{ borderBottom: '1px solid #808080', marginTop: '15px' }}>Live Publishers</h3>
+                <div className="inset-field" style={{ padding: '6px', fontSize: '10px', marginBottom: '10px', minHeight: '40px' }}>
+                  {!serverStatus?.rtmpPublishers || serverStatus.rtmpPublishers.length === 0 ? (
+                    <div style={{ color: '#888', padding: '4px' }}>No active publishers.</div>
+                  ) : (
+                    serverStatus.rtmpPublishers.map((pub: any) => {
+                      const isRecording = activeRecordings.some(r => r.streamKey === pub.streamKey);
+                      const isPreviewing = previewOpen.has(pub.streamKey);
+                      const togglePreview = () => setPreviewOpen(prev => {
+                        const next = new Set(prev);
+                        if (next.has(pub.streamKey)) next.delete(pub.streamKey);
+                        else next.add(pub.streamKey);
+                        return next;
+                      });
+                      return (
+                        <div key={pub.streamKey} style={{ padding: '3px 0', borderBottom: '1px solid #eee' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                              <span style={{ color: '#00cc00', fontSize: '9px' }}>●</span>
+                              <span style={{ fontFamily: 'monospace', fontWeight: 'bold' }}>{pub.streamKey}</span>
+                              <span style={{ color: '#888', fontSize: '9px' }}>⏱{pub.uptime}s</span>
+                            </div>
+                            <div style={{ display: 'flex', gap: '4px' }}>
+                              <button
+                                onClick={togglePreview}
+                                style={{
+                                  fontSize: '9px', padding: '1px 6px',
+                                  backgroundColor: isPreviewing ? '#004488' : '#e0e0e0',
+                                  color: isPreviewing ? '#fff' : '#000',
+                                  border: '1px solid #808080', cursor: 'pointer'
+                                }}
+                              >
+                                {isPreviewing ? '⏹ PREVIEW' : '▶ PREVIEW'}
+                              </button>
+                              <button
+                                className="btn"
+                                onClick={() => isRecording ? stopRecording(pub.streamKey) : startRecording(pub.streamKey)}
+                                style={{
+                                  fontSize: '9px', padding: '1px 6px',
+                                  backgroundColor: isRecording ? '#cc000022' : '#00440022',
+                                  color: isRecording ? '#cc0000' : '#004400',
+                                  border: `1px solid ${isRecording ? '#cc0000' : '#006600'}`
+                                }}
+                              >
+                                {isRecording ? '⏹ STOP REC' : '⏺ REC'}
+                              </button>
+                            </div>
+                          </div>
+                          {isPreviewing && (
+                            <RtmpPlayerTile streamKey={pub.streamKey} host={serverStatus?.local || 'localhost'} />
+                          )}
+                        </div>
+                      );
+                    })
                   )}
                 </div>
 
@@ -526,9 +830,84 @@ function App() {
                     <li>AMF/QSV: AMD/Intel (Fast)</li>
                   </ul>
                 </div>
+                {/* Active Recordings Panel */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #808080', marginTop: '15px' }}>
+                  <h3 style={{ margin: 0, color: activeRecordings.length > 0 ? '#cc0000' : undefined }}>
+                    {activeRecordings.length > 0 ? `⏺ Recording (${activeRecordings.length})` : 'Recordings'}
+                  </h3>
+                  <button className="btn" style={{ fontSize: '9px', padding: '0 6px' }} onClick={openRecordingsDir}>
+                    📁 FOLDER
+                  </button>
+                </div>
+                <div className="inset-field" style={{ padding: '6px', fontSize: '10px', marginBottom: '10px', minHeight: '36px' }}>
+                  {activeRecordings.length === 0 ? (
+                    <div style={{ color: '#888', padding: '4px' }}>
+                      No active recordings. Click ⏺ REC on a Live Publisher above.
+                    </div>
+                  ) : (
+                    activeRecordings.map(rec => {
+                      const elapsed = Math.floor((recNow - rec.startTime) / 1000);
+                      const mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
+                      const ss = String(elapsed % 60).padStart(2, '0');
+                      const filename = rec.path.split(/[/\\]/).pop() || rec.path;
+                      return (
+                        <div key={rec.streamKey} style={{ marginBottom: '5px', padding: '4px 5px', background: '#fff0f0', border: '1px solid #ffaaaa' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                              <span style={{ color: '#cc0000', fontSize: '11px' }}>⏺</span>
+                              <span style={{ fontFamily: 'monospace', fontWeight: 'bold', color: '#cc0000' }}>{rec.streamKey}</span>
+                              <span style={{ fontFamily: 'monospace', background: '#cc0000', color: '#fff', padding: '0 4px', fontSize: '9px' }}>{mm}:{ss}</span>
+                            </div>
+                            <button
+                              className="btn"
+                              onClick={() => stopRecording(rec.streamKey)}
+                              style={{ fontSize: '9px', padding: '1px 6px', background: '#cc000022', color: '#cc0000', border: '1px solid #cc0000' }}
+                            >
+                              ⏹ STOP
+                            </button>
+                          </div>
+                          <div style={{ fontSize: '8px', color: '#888', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={rec.path}>
+                            💾 {filename}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
 
                 <h3 style={{ borderBottom: '1px solid #808080', marginTop: '10px' }}>Broadcast Settings</h3>
+
                 <div className="inset-field" style={{ fontSize: '10px', padding: '10px', marginBottom: '10px' }}>
+
+                  {/* GPU Detection Status */}
+                  <div style={{ marginBottom: '10px', padding: '5px', background: '#f0f0f0', border: '1px solid #ccc' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '3px' }}>
+                      <strong>GPU Detection:</strong>
+                      {detectedEncoder ? (
+                        <span style={{
+                          background: detectedEncoder.best !== 'none' ? '#004000' : '#404000',
+                          color: '#fff',
+                          padding: '1px 5px',
+                          fontSize: '9px',
+                          fontFamily: 'monospace'
+                        }}>
+                          {detectedEncoder.best !== 'none' ? '● HW ACCEL' : '○ SOFTWARE'}
+                        </span>
+                      ) : (
+                        <span style={{ color: '#808080', fontSize: '9px' }}>SCANNING...</span>
+                      )}
+                    </div>
+                    {detectedEncoder && (
+                      <div style={{ color: '#444', fontFamily: 'monospace', fontSize: '9px' }}>
+                        Best: <strong>{detectedEncoder.bestLabel}</strong>
+                        {detectedEncoder.available.length > 0 && (
+                          <span style={{ marginLeft: '8px', color: '#888' }}>
+                            Available: {detectedEncoder.available.join(', ')}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
                   <div style={{ marginBottom: '8px' }}>
                     <label style={{ display: 'block', marginBottom: '2px' }}>Target Bitrate:</label>
                     <select 
@@ -568,11 +947,28 @@ function App() {
                       value={hwAccel} 
                       onChange={(e) => setHwAccel(e.target.value)}
                     >
-                      <option value="none">Software (x264)</option>
-                      <option value="nvidia">NVIDIA NVENC</option>
-                      <option value="amd">AMD AMF</option>
-                      <option value="intel">Intel QSV</option>
+                      {[
+                        { value: 'none',   label: 'Software (x264)' },
+                        { value: 'amd',    label: 'AMD AMF' },
+                        { value: 'nvidia', label: 'NVIDIA NVENC' },
+                        { value: 'intel',  label: 'Intel QSV' },
+                      ].map(opt => {
+                        const isDetected = detectedEncoder?.best === opt.value;
+                        const isAvailable = opt.value === 'none' || !detectedEncoder || detectedEncoder.available.includes(opt.value);
+                        return (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                            {isDetected ? ' ★ Auto-detected' : ''}
+                            {opt.value !== 'none' && !isAvailable && detectedEncoder ? ' (not found)' : ''}
+                          </option>
+                        );
+                      })}
                     </select>
+                    {hwAccel !== (detectedEncoder?.best ?? 'none') && detectedEncoder && (
+                      <div style={{ color: '#886600', fontSize: '9px', marginTop: '2px' }}>
+                        ⚠ Override active. Auto-detected: {detectedEncoder.bestLabel}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -590,17 +986,17 @@ function App() {
             </div>
             <div className="window-content">
               <div className="inset-field" style={{ marginBottom: '15px' }}>
-                <div style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
-                  <div>
+                <div style={{ display: 'flex', gap: '10px', marginBottom: '10px', flexWrap: 'wrap' }}>
+                  <div style={{ flex: '1 1 auto', minWidth: '120px' }}>
                     <label>Camera: </label>
-                    <select className="inset-field" value={selectedVideo} onChange={(e) => setSelectedVideo(e.target.value)}>
+                    <select className="inset-field" style={{ width: '100%', boxSizing: 'border-box' }} value={selectedVideo} onChange={(e) => setSelectedVideo(e.target.value)}>
                       <option value="">{isElectron ? 'Off' : 'Default Camera'}</option>
                       {videoDevices.map(d => <option key={d.deviceId} value={d.deviceId}>{d.label || 'Camera'}</option>)}
                     </select>
                   </div>
-                  <div>
+                  <div style={{ flex: '1 1 auto', minWidth: '120px' }}>
                     <label>Mic: </label>
-                    <select className="inset-field" value={selectedAudio} onChange={(e) => setSelectedAudio(e.target.value)}>
+                    <select className="inset-field" style={{ width: '100%', boxSizing: 'border-box' }} value={selectedAudio} onChange={(e) => setSelectedAudio(e.target.value)}>
                       <option value="">{isElectron ? 'Off' : 'Default Mic'}</option>
                       {audioDevices.map(d => <option key={d.deviceId} value={d.deviceId}>{d.label || 'Microphone'}</option>)}
                     </select>
@@ -631,28 +1027,37 @@ function App() {
                     </button>
                     <span style={{ fontSize: '10px', color: '#666' }}> (Visible to all connected clients)</span>
                   </div>
+                ) : isAdminMode ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '4px 0' }}>
+                    <span style={{ background: '#000080', color: '#fff', padding: '3px 10px', fontFamily: 'monospace', fontSize: '10px', letterSpacing: '1px' }}>
+                      ◈ MONITOR MODE
+                    </span>
+                    <span style={{ fontSize: '10px', color: '#555' }}>
+                      Connected as Admin Monitor. Broadcast controls require the Electron app.
+                    </span>
+                  </div>
                 ) : (
-                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                    <input 
-                      className="inset-field" 
-                      type="text" 
-                      value={userName} 
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <input
+                      className="inset-field"
+                      type="text"
+                      value={userName}
                       onChange={(e) => setUserName(e.target.value)} 
                       placeholder="Required: Enter your name" 
                       disabled={isConnected} 
-                      style={{ border: !userName.trim() ? '1px solid #ff0000' : 'none' }}
+                      style={{ border: !userName.trim() ? '1px solid #ff0000' : 'none', flex: '1 1 140px', minWidth: '140px' }}
                     />
                     <button 
                       className="btn" 
                       onClick={() => setLocalCameraActive(!localCameraActive)} 
-                      style={{ padding: '2px 20px', backgroundColor: localCameraActive ? '#ff000022' : '#00ff0022' }}
+                      style={{ padding: '6px 16px', backgroundColor: localCameraActive ? '#ff000022' : '#00ff0022', flex: '1 1 auto' }}
                     >
                       {localCameraActive ? 'STOP CAMERA' : 'START CAMERA'}
                     </button>
                     <button 
                       className="btn" 
                       onClick={isConnected ? disconnect : handleConnect} 
-                      style={{ padding: '2px 20px', backgroundColor: isConnected ? '#ff000022' : '#00ff0022' }}
+                      style={{ padding: '6px 16px', backgroundColor: isConnected ? '#ff000022' : '#00ff0022', flex: '1 1 auto' }}
                       disabled={!userName.trim()}
                     >
                       {isConnected ? 'DISCONNECT' : 'CONNECT TO HUB'}
@@ -671,17 +1076,18 @@ function App() {
                     setIsVideoEnabled={setIsVideoEnabled}
                     isAudioEnabled={isAudioEnabled}
                     setIsAudioEnabled={setIsAudioEnabled}
+                    serverLocalIP={serverStatus?.local}
                   />
                 )}
                 {peers.map((peer) => (
-                  <VideoFeed key={peer.id} stream={peer.stream} label={peer.name || `User ${peer.id.slice(0, 4)}`} />
+                  <VideoFeed key={peer.id} stream={peer.stream} label={peer.name || `User ${peer.id.slice(0, 4)}`} serverLocalIP={serverStatus?.local} />
                 ))}
               </div>
 
               {showGrid && allStreams.length > 0 && (
-                <GridView 
-                  streams={isGridShared ? allStreams.filter((s: any) => s.id !== 'local') : allStreams} 
-                  onStreamUpdate={setGridStream} 
+                <GridView
+                  streams={isGridShared ? allStreams.filter((s: any) => s.id !== 'local') : allStreams}
+                  onStreamUpdate={setGridStream}
                   broadcastSettings={{
                     bitrate: broadcastBitrate,
                     preset: broadcastPreset,
@@ -691,6 +1097,8 @@ function App() {
                   showWatermark={showWatermark}
                   watermarkPos={watermarkPos}
                   showSettingsOverlay={showSettingsOverlay}
+                  serverLocalIP={serverStatus?.local}
+                  spotlightId={spotlightId ?? undefined}
                 />
               )}
               

@@ -12,13 +12,17 @@ interface VideoFeedProps {
   setIsVideoEnabled?: (val: boolean) => void;
   isAudioEnabled?: boolean;
   setIsAudioEnabled?: (val: boolean) => void;
+  /** The real LAN IP of the server, used to display the RTMP stream URL. */
+  serverLocalIP?: string;
 }
 
 const VideoFeed: React.FC<VideoFeedProps> = ({ 
   stream, label, isLocal, 
   isVideoEnabled = true, setIsVideoEnabled, 
-  isAudioEnabled = true, setIsAudioEnabled 
+  isAudioEnabled = true, setIsAudioEnabled,
+  serverLocalIP
 }) => {
+  const rtmpHost = serverLocalIP || window.location.hostname;
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -61,16 +65,25 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
       setIsPiping(false);
     } else {
       const streamKey = `feed-${label.replace(/\s+/g, '-').toLowerCase()}`;
-      ipc.send('ffmpeg-pipe-start', { hwAccel, streamKey });
-      const recorder = new MediaRecorder(stream, { mimeType: 'video/webm; codecs=vp8' });
+      const mimeType = MediaRecorder.isTypeSupported('video/webm; codecs=vp8')
+        ? 'video/webm; codecs=vp8'
+        : 'video/webm';
+      const recorder = new MediaRecorder(stream, { mimeType });
+      let pipeStarted = false;
+
       recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          event.data.arrayBuffer().then((buffer) => {
-            ipc.send('ffmpeg-pipe-chunk', { chunk: buffer, streamKey });
-          });
-        }
+        if (event.data.size === 0) return;
+        event.data.arrayBuffer().then(async (buffer) => {
+          if (!pipeStarted) {
+            // Delay pipe-start until first chunk (contains WebM header + keyframe)
+            ipc.send('ffmpeg-pipe-start', { hwAccel, streamKey });
+            pipeStarted = true;
+            await new Promise(r => setTimeout(r, 100));
+          }
+          ipc.send('ffmpeg-pipe-chunk', { chunk: buffer, streamKey });
+        });
       };
-      recorder.start(100); // 100ms chunks
+      recorder.start(500); // 500ms chunks for stable header delivery
       mediaRecorderRef.current = recorder;
       setIsPiping(true);
     }
@@ -137,7 +150,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
             position: 'absolute', top: 5, left: 5, right: 5, zIndex: 10,
             backgroundColor: 'rgba(0,0,0,0.7)', color: '#0f0', fontSize: '8px', padding: '2px'
           }}>
-            RTMP: rtmp://{window.location.hostname}/live/feed-{label.replace(/\s+/g, '-').toLowerCase()}
+            RTMP: rtmp://{rtmpHost}/live/feed-{label.replace(/\s+/g, '-').toLowerCase()}
           </div>
         )}
         <video

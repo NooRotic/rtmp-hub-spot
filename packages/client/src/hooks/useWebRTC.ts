@@ -28,6 +28,8 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
   const [socketStatus, setSocketStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
   const [userStream, setUserStream] = useState<MediaStream | null>(null);
   const [chatMessages, setChatMessages] = useState<{ senderName: string, message: string, timestamp: number }[]>([]);
+  const [recordingStopped, setRecordingStopped] = useState<{ streamKey: string; reason: string } | null>(null);
+  const [wasKicked, setWasKicked] = useState(false);
   const [isVideoEnabled, setIsVideoEnabled] = useState(true);
   const [isAudioEnabled, setIsAudioEnabled] = useState(true);
   const [serverStatus, setServerStatus] = useState<{ 
@@ -43,11 +45,24 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
       uptime: number,
       bitrate: number,
       bytes: number
-    }[]
+    }[];
+    rtmpPublishers: {
+      streamKey: string,
+      ip: string,
+      path: string,
+      uptime: number
+    }[];
   } | null>(null);
   const socketRef = useRef<any>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
   const peersRef = useRef<{ id: string; name: string; peer: any }[]>([]);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectAttemptsRef = useRef(0);
+  const MAX_RECONNECT_ATTEMPTS = 10;
+  const RECONNECT_BASE_DELAY_MS = 2000;
+  // Refs to always reflect the latest prop values inside async callbacks and timers
+  const userNameRef = useRef(userName ?? '');
+  const cameraLabelRef = useRef(cameraLabel ?? '');
 
   const addLocalStatus = (message: string) => {
     setChatMessages(prev => [...prev.slice(-49), {
@@ -67,44 +82,91 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
   };
 
   /**
-   * Initializes WebSocket communication to the Signaling Server.
-   * Upon successful connection, registers the client internally and emits a `join-room`.
-   * Automatically sets up hooks for ICE candidates, Offer/Answer renegotiation, and Peer pruning.
-   * 
-   * @returns {void}
+   * Destroy all active peer connections and clear refs.
+   * Called before reconnecting so stale peers don't accumulate.
    */
-  const connect = () => {
-    if (isConnected) return;
+  const cleanupPeers = () => {
+    peersRef.current.forEach(p => { try { p.peer.destroy(); } catch (_) {} });
+    peersRef.current = [];
+    setPeers([]);
+  };
+
+  /**
+   * Schedule a reconnect attempt with exponential backoff.
+   * Stops after MAX_RECONNECT_ATTEMPTS consecutive failures.
+   */
+  const scheduleReconnect = () => {
+    if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
+      addLocalStatus('Max reconnect attempts reached. Reload the page to try again.');
+      setSocketStatus('error');
+      return;
+    }
+    const delay = RECONNECT_BASE_DELAY_MS * Math.pow(1.5, reconnectAttemptsRef.current);
+    reconnectAttemptsRef.current += 1;
+    addLocalStatus(`Reconnecting in ${Math.round(delay / 1000)}s… (attempt ${reconnectAttemptsRef.current}/${MAX_RECONNECT_ATTEMPTS})`);
+    reconnectTimerRef.current = setTimeout(() => {
+      reconnectTimerRef.current = null;
+      connectInternal();
+    }, delay);
+  };
+
+  /**
+   * Internal connect implementation. Cleans up any existing socket before creating a new one.
+   * Always call this instead of directly touching socketRef.
+   */
+  const connectInternal = () => {
+    // Tear down any lingering socket before creating a fresh one
+    if (socketRef.current) {
+      socketRef.current.removeAllListeners();
+      socketRef.current.disconnect();
+      socketRef.current = null;
+    }
+    cleanupPeers();
+
     setSocketStatus('connecting');
     addLocalStatus('Connecting to signaling server...');
-    // Use relative path to leverage Vite proxy in dev, or same-origin in prod
-    // FOR ELECTRON: Use direct signaling URL to avoid proxy issues with self-signed certs
-    const signalingUrl = isElectron 
+
+    const signalingUrl = isElectron
       ? (import.meta.env.VITE_SIGNALING_SERVER_URL || 'https://localhost:4001')
       : window.location.origin;
     console.log('[WebRTC] Connecting to signaling:', signalingUrl);
+
     socketRef.current = io(signalingUrl, {
       rejectUnauthorized: false,
-      transports: ['websocket']
+      transports: ['websocket'],
+      reconnection: false, // We handle reconnection ourselves for full control
     });
 
     socketRef.current.on('connect', () => {
       console.log('[WebRTC] Socket connected:', socketRef.current.id);
+      reconnectAttemptsRef.current = 0; // Reset backoff on successful connect
       setSocketStatus('connected');
       setIsConnected(true);
-      const displayName = isElectron ? 'Admin Hub' : userName;
-      const fullIdentity = `${displayName} - ${cameraLabel || 'Hub'}`;
-      // Use a consistent roomId for the Hub
+      const displayName = isElectron ? 'Admin Hub' : userNameRef.current;
+      const fullIdentity = `${displayName} - ${cameraLabelRef.current || 'Hub'}`;
       const effectiveRoomId = 'main-hub';
       socketRef.current.emit('join-room', { roomId: effectiveRoomId, userName: fullIdentity });
       addLocalStatus(`Joined room: ${effectiveRoomId} as ${fullIdentity}`);
+    });
+
+    socketRef.current.on('disconnect', (reason: string) => {
+      console.warn('[WebRTC] Socket disconnected:', reason);
+      setSocketStatus('disconnected');
+      setIsConnected(false);
+      cleanupPeers();
+      addLocalStatus(`Disconnected: ${reason}`);
+      // Server-initiated disconnects should reconnect; client-side closes should not
+      if (reason !== 'io client disconnect') {
+        scheduleReconnect();
+      }
     });
 
     socketRef.current.on('connect_error', (err: any) => {
       console.error('[WebRTC] Socket connect error:', err);
       setSocketStatus('error');
       setIsConnected(false);
-      addLocalStatus(`Connection Error: ${err.message}`);
+      addLocalStatus(`Connection error: ${err.message}`);
+      scheduleReconnect();
     });
 
     socketRef.current.on('all-users', (usersList: { userId: string; userName: string }[]) => {
@@ -165,7 +227,27 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
       setChatMessages(prev => [...prev.slice(-49), data]);
     });
 
-    socketRef.current.on('server-status', (status: { 
+    socketRef.current.on('recording-stopped', (data: { streamKey: string; reason: string }) => {
+      console.log('[WebRTC] Recording stopped by server:', data);
+      setRecordingStopped(data);
+    });
+
+    socketRef.current.on('kicked', () => {
+      console.warn('[WebRTC] Kicked by admin.');
+      reconnectAttemptsRef.current = MAX_RECONNECT_ATTEMPTS; // Suppress auto-reconnect
+      cleanupPeers();
+      setIsConnected(false);
+      setSocketStatus('disconnected');
+      setWasKicked(true);
+      addLocalStatus('You have been removed from the session by the admin.');
+      if (socketRef.current) {
+        socketRef.current.removeAllListeners();
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
+    });
+
+    socketRef.current.on('server-status', (status: {
       local: string; 
       public: string; 
       clientCount: number; 
@@ -178,7 +260,13 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
         uptime: number,
         bitrate: number,
         bytes: number
-      }[]
+      }[];
+      rtmpPublishers: {
+        streamKey: string,
+        ip: string,
+        path: string,
+        uptime: number
+      }[];
     }) => {
       console.log('[WebRTC] Server status updated:', status);
       setServerStatus(status);
@@ -186,18 +274,38 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
   };
 
   /**
-   * Destroys all active P2P connections and cleanly disconnects the local signaling websocket.
+   * Public connect — entry point for both manual and auto-connect flows.
+   * Delegates to connectInternal which handles stale socket cleanup.
+   * @returns {void}
+   */
+  const connect = () => {
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+    reconnectAttemptsRef.current = 0;
+    connectInternal();
+  };
+
+  /**
+   * Destroys all active P2P connections and cleanly disconnects the signaling websocket.
+   * Cancels any pending reconnect timer.
    * @returns {void}
    */
   const disconnect = () => {
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+    reconnectAttemptsRef.current = MAX_RECONNECT_ATTEMPTS; // Prevent scheduleReconnect from firing
     if (socketRef.current) {
+      socketRef.current.removeAllListeners();
       socketRef.current.disconnect();
       socketRef.current = null;
     }
-    peersRef.current.forEach(p => p.peer.destroy());
-    peersRef.current = [];
-    setPeers([]);
+    cleanupPeers();
     setIsConnected(false);
+    setSocketStatus('disconnected');
   };
 
   useEffect(() => {
@@ -358,7 +466,7 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
   function createPeer(userToSignal: string, name: string, stream?: MediaStream) {
     const peer = new Peer({
       initiator: true,
-      trickle: false,
+      trickle: true, // Send ICE candidates as they're found — dramatically faster P2P setup
       stream,
       ...config
     });
@@ -371,7 +479,7 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
   function addPeer(incomingSignal: any, callerId: string, name: string, stream?: MediaStream) {
     const peer = new Peer({
       initiator: false,
-      trickle: false,
+      trickle: true, // Must match initiator side
       stream,
       ...config
     });
@@ -393,19 +501,40 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
     }
   };
 
-  return { 
-    peers, 
-    userStream, 
-    connect, 
-    disconnect, 
-    isConnected, 
-    socketStatus, 
-    chatMessages, 
+  /**
+   * Emit a kick-user event to the signaling server.
+   * Admin-only: the UI must gate this behind isElectron checks.
+   * @param {string} targetId - The socket.id of the user to remove.
+   */
+  const kickUser = (targetId: string) => {
+    if (socketRef.current) {
+      socketRef.current.emit('kick-user', { targetId });
+    }
+  };
+
+  // Keep refs in sync with latest prop values so reconnect timers always see current data
+  useEffect(() => { userNameRef.current = userName ?? ''; }, [userName]);
+  useEffect(() => { cameraLabelRef.current = cameraLabel ?? ''; }, [cameraLabel]);
+
+  const isLive = isConnected && peers.some(p => p.stream);
+
+  return {
+    peers,
+    userStream,
+    connect,
+    disconnect,
+    isConnected,
+    socketStatus,
+    chatMessages,
     sendMessage,
     isVideoEnabled,
     setIsVideoEnabled,
     isAudioEnabled,
     setIsAudioEnabled,
-    serverStatus
+    serverStatus,
+    recordingStopped,
+    wasKicked,
+    kickUser,
+    isLive
   };
 };

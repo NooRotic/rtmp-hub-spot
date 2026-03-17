@@ -1,7 +1,7 @@
 {
   "name": "rtmp-hub-spot",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "RTMP/WebRTC client-server system with retro WinNT UI",
   "workspaces": [
     "packages/*"

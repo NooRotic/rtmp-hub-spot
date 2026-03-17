@@ -58,6 +58,12 @@ The application is a monorepo containing:
 - **Issue**: Clients and Admin were joining different rooms based on usernames, preventing visibility.
 - **Fix**: Hardcoded `roomId: 'main-hub'` in `useWebRTC.ts`. **DO NOT CHANGE THIS** unless implementing multi-room support with explicit UI controls.
 
+### 4.1b. Trickle ICE (latency)
+
+- **Change**: `trickle: true` in both `createPeer` and `addPeer` in `useWebRTC.ts`.
+- **Why**: `trickle: false` delayed P2P connection setup by 1–5 seconds while all ICE candidates were gathered before sending the offer. With `trickle: true`, candidates are sent as discovered and connection establishes in ~300 ms for LAN peers.
+- **Safety**: The signal routing in `bindPeerEvents` already handles the three signal shapes correctly — `signal.type === 'offer'`, `signal.type === 'answer'`, and `signal.candidate` for trickle candidates. **Do not set `trickle: false`** — it also breaks renegotiation ordering.
+
 ### 4.2. Electron Detection
 
 - **Issue**: `navigator.userAgent` is unreliable alone.
@@ -84,8 +90,34 @@ The application is a monorepo containing:
 ### 4.5. FFmpeg Input Format
 
 - **Issue**: `MediaRecorder` produces WebM. FFmpeg's `webm` format demuxer can be unstable with piped input.
-- **Fix**: Use `-f matroska` (WebM parent container) and flags `-fflags nobuffer+igndts -flags low_delay -analyzeduration 0 -probesize 32`.
+- **Fix**: Use `-f matroska` (WebM parent container) and flags `-fflags nobuffer+igndts+genpts -flags low_delay -probesize 5000000 -analyzeduration 1000000`.
 - **Removed**: `-analyze_max_extrapolation` (unsupported option that caused crashes).
+- **Note**: `probesize 5000000` / `analyzeduration 1000000` are intentionally large — smaller values cause "Discarding interframe without a prior keyframe" errors at startup.
+
+### 4.7. RTMP Stream Viewability from External Clients (OBS/VLC)
+
+Two root causes prevented external RTMP playback:
+
+1. **`gop_cache: false`** — With GOP cache disabled, a client connecting mid-stream has to wait up to 1 GOP interval (≈1 s at `-g 30` / 30fps) before receiving a keyframe. Many players timeout and disconnect. **Fix**: Set `gop_cache: true` in `nmsConfig.rtmp`.
+
+2. **Missing audio codec header** — The `-an` flag produced video-only FLV streams. OBS and VLC both silently fail or refuse to buffer a stream with no audio track. Canvas-captured streams (`grid`, etc.) have no audio source; peer feed streams (`feed-*`) have real Opus audio from MediaRecorder.
+   - **Fix for grid/canvas streams**: Inject an infinite silent lavfi source as input 1 and map it explicitly:
+     ```
+     -f lavfi -i aevalsrc=0:channel_layout=stereo:sample_rate=44100
+     -map 0:v:0 -map 1:a:0 -c:a aac -b:a 32k
+     ```
+   - **Fix for feed-* streams**: Remove `-an`, add `-c:a aac -b:a 128k` to transcode the Opus audio from the WebM input.
+
+The distinction is made in `main.js` via `const hasFeedAudio = streamKey.startsWith('feed-')`.
+
+### 4.8. FFmpeg Health Monitoring
+
+The renderer has no direct visibility into whether the FFmpeg process is alive or healthy. Added a `broadcastIPC(channel, data)` helper that sends events to all `BrowserWindow` renderers:
+
+- **`ffmpeg-status`**: `{ state: 'starting'|'running'|'stopped'|'error', streamKey, message? }` — emitted on pipe start, first frame, clean stop, and error.
+- **`ffmpeg-stats`**: `{ frame, fps, size, time, bitrate, speed, streamKey }` — parsed from FFmpeg's periodic stderr stats line and emitted on every update.
+
+The client listens in `App.tsx` and displays a **FFmpeg Pipeline** health panel in the sidebar with a coloured LED indicator and live stats.
 
 ### 4.6. Grid Management
 

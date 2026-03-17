@@ -1,8 +1,10 @@
 /// <reference types="vitest" />
-import { render, screen } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
-import GridView from './GridView';
+import { describe, it, expect, afterEach } from 'vitest';
 import React from 'react';
+import { render, screen, cleanup } from '../test/testUtils';
+import GridView from './GridView';
+
+afterEach(cleanup);
 
 describe('GridView Component', () => {
   const mockStreams = [
@@ -11,9 +13,8 @@ describe('GridView Component', () => {
   ];
 
   it('renders the canvas', () => {
-    render(<GridView streams={mockStreams} />);
-    const canvas = screen.getByRole('img', { hidden: true }); // Canvas often doesn't have a role, but we'll check it's in the DOM
-    expect(canvas).toBeInTheDocument();
+    const { container } = render(<GridView streams={mockStreams} />);
+    expect(container.querySelector('canvas')).toBeInTheDocument();
   });
 
   it('renders the title', () => {

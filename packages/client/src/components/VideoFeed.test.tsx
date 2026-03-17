@@ -1,13 +1,15 @@
 /// <reference types="vitest" />
-import { render, screen, fireEvent } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
-import VideoFeed from './VideoFeed';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import React from 'react';
+import { render, screen, cleanup } from '../test/testUtils';
+import VideoFeed from './VideoFeed';
+
+afterEach(cleanup);
 
 describe('VideoFeed Component', () => {
   const mockStream = {
     getTracks: () => [{ stop: vi.fn() }],
-  } as any;
+  } as unknown as MediaStream;
 
   it('renders the label correctly', () => {
     render(<VideoFeed label="Test Feed" stream={mockStream} />);
