@@ -682,6 +682,10 @@ ipcMain.on('window-close', () => {
   app.quit();
 });
 
+// RTMP destination CRUD (Multi-Stream Pro) — encrypted via safeStorage
+const { registerDestinationHandlers } = require('./destinationHandlers');
+registerDestinationHandlers(ipcMain);
+
 app.whenReady().then(createWindow);
 
 app.on('window-all-closed', () => {

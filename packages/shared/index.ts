@@ -11,3 +11,12 @@ export interface UserInfo {
   name: string;
   role: 'admin' | 'user';
 }
+
+export interface RtmpDestination {
+  id: string;
+  name: string;
+  url: string;
+  streamKey: string;
+  enabled: boolean;
+  encoder?: 'nvenc' | 'amf' | 'qsv' | 'software';
+}
