@@ -390,46 +390,6 @@ initializeServer().then(({ nms, server, io }) => {
   console.error('[CRITICAL] Server Initialization Failed:', err);
 });
 
-let ffmpegProcess = null;
-
-ipcMain.on('start-virtual-cam', (event, streamUrl) => {
-  if (ffmpegProcess) {
-    ffmpegProcess.kill();
-  }
-
-  ffmpegProcess = ffmpeg(streamUrl)
-    .inputOptions([
-      '-fflags nobuffer',
-      '-flags low_delay'
-    ])
-    .outputOptions([
-      '-f flv',
-      '-vcodec libx264',
-      '-preset ultrafast',
-      '-tune zerolatency',
-      '-pix_fmt yuv420p',
-      '-g 30'
-    ])
-    .output(`rtmp://localhost:${RTMP_PORT}/live/admin`)
-    .on('start', (commandLine) => {
-      console.log('Spawned FFmpeg with command: ' + commandLine);
-    })
-    .on('error', (err) => {
-      console.log('An error occurred: ' + err.message);
-    })
-    .on('end', () => {
-      console.log('Processing finished !');
-    })
-    .run();
-});
-
-ipcMain.on('stop-virtual-cam', () => {
-  if (ffmpegProcess) {
-    ffmpegProcess.kill();
-    ffmpegProcess = null;
-  }
-});
-
 const { PassThrough } = require('stream');
 let pipeFfmpeg = null;
 let videoStream = null;
