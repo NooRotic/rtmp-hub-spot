@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, session } = require('electron');
 const path = require('path');
 const os = require('os');
 const https = require('https');
@@ -48,7 +48,39 @@ function broadcastIPC(channel, data) {
  *
  * @returns {void}
  */
+/**
+ * Applies a Content-Security-Policy to the renderer via response headers.
+ * Production is strict (no eval, no remote script/connect origins beyond
+ * localhost); development relaxes script-src for Vite HMR. Both allow the
+ * inline polyfill in index.html (simple-peer needs window.global/process) and
+ * inline styles (the app uses style={{…}} extensively).
+ * @returns {void}
+ */
+function applyContentSecurityPolicy() {
+  const common =
+    "default-src 'self'; " +
+    "style-src 'self' 'unsafe-inline'; " +
+    "img-src 'self' data: blob:; " +
+    "media-src 'self' blob:; " +
+    "font-src 'self' data:; " +
+    "connect-src 'self' https://localhost:* wss://localhost:* ws://localhost:*;";
+  const scriptSrc = app.isPackaged
+    ? "script-src 'self' 'unsafe-inline'; "                  // prod: inline polyfill ok, no eval
+    : "script-src 'self' 'unsafe-inline' 'unsafe-eval'; ";   // dev: Vite HMR needs eval
+  const csp = scriptSrc + common;
+
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [csp],
+      },
+    });
+  });
+}
+
 function createWindow() {
+  applyContentSecurityPolicy();
   const win = new BrowserWindow({
     width: 1024,
     height: 768,
