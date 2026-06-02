@@ -42,6 +42,7 @@
     "files": [
       "main.js",
       "preload.js",
+      "cert-trust.js",
       "package.json",
       "assets/**/*",
       "../client/dist/**/*"

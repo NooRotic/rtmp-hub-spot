@@ -1,4 +1,5 @@
 const { app, BrowserWindow, ipcMain, shell, session } = require('electron');
+const { isLoopbackHost } = require('./cert-trust');
 const path = require('path');
 const os = require('os');
 const https = require('https');
@@ -84,8 +85,23 @@ function applyContentSecurityPolicy() {
   });
 }
 
+/**
+ * Trusts self-signed certificates for loopback hosts (the HTTPS signaling server
+ * and the Vite dev server). Uses the session verify proc rather than
+ * app.on('certificate-error') because the proc reliably covers EVERY request —
+ * including the renderer's wss:// Socket.IO connection, which the event misses.
+ * @returns {void}
+ */
+function trustLoopbackCertificates() {
+  session.defaultSession.setCertificateVerifyProc((request, callback) => {
+    // 0 = trust; -3 = defer to Chromium's default verification (rejects bad certs)
+    callback(isLoopbackHost(request.hostname) ? 0 : -3);
+  });
+}
+
 function createWindow() {
   applyContentSecurityPolicy();
+  trustLoopbackCertificates();
   const win = new BrowserWindow({
     width: 1024,
     height: 768,
@@ -114,17 +130,10 @@ function createWindow() {
   });
 }
 
-// Trust ONLY our own self-signed localhost certificate (the signaling/HTTPS
-// server generates one at startup). Every other certificate error is rejected,
-// instead of the previous app-wide `ignore-certificate-errors` switch.
-app.on('certificate-error', (event, _webContents, url, _error, _certificate, callback) => {
-  if (/^https:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(url)) {
-    event.preventDefault();
-    callback(true);   // trust loopback self-signed
-  } else {
-    callback(false);  // fall back to Chromium default (reject)
-  }
-});
+// Cert trust is handled by session.setCertificateVerifyProc in createWindow()
+// (see trustLoopbackCertificates) — it covers ALL requests, including the
+// renderer's wss:// Socket.IO connection, which app.on('certificate-error') does
+// not reliably handle. This replaced the app-wide ignore-certificate-errors switch.
 
 const nmsConfig = {
   bind: BIND_IP, // Set the bind IP for the entire server
