@@ -1,7 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 
 const isElectron = navigator.userAgent.toLowerCase().indexOf(' electron/') > -1;
-const ipc = isElectron ? (window as any).require('electron').ipcRenderer : null;
+// Prefer the contextBridge surface (window.electron); fall back to the legacy
+// nodeIntegration path so this works before and after the security flag flip.
+const ipc = isElectron
+  ? ((window as any).electron?.ipcRenderer ?? (window as any).require?.('electron')?.ipcRenderer ?? null)
+  : null;
 
 interface GridViewProps {
   streams: { id: string; stream: MediaStream | undefined; label: string }[];
