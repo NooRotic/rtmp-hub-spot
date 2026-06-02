@@ -53,8 +53,11 @@ function createWindow() {
     width: 1024,
     height: 768,
     webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+      preload: path.join(__dirname, 'preload.js'),
+      webSecurity: true,
       autoplayPolicy: 'no-user-gesture-required',
     },
     frame: false, // Custom WinNT frame
