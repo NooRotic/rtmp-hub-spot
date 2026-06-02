@@ -109,8 +109,17 @@ function createWindow() {
   });
 }
 
-// Allow self-signed certs in development
-app.commandLine.appendSwitch('ignore-certificate-errors');
+// Trust ONLY our own self-signed localhost certificate (the signaling/HTTPS
+// server generates one at startup). Every other certificate error is rejected,
+// instead of the previous app-wide `ignore-certificate-errors` switch.
+app.on('certificate-error', (event, _webContents, url, _error, _certificate, callback) => {
+  if (/^https:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(url)) {
+    event.preventDefault();
+    callback(true);   // trust loopback self-signed
+  } else {
+    callback(false);  // fall back to Chromium default (reject)
+  }
+});
 
 const nmsConfig = {
   bind: BIND_IP, // Set the bind IP for the entire server
