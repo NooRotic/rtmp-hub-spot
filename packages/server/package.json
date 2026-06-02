@@ -15,13 +15,14 @@
   "license": "ISC",
   "type": "commonjs",
   "devDependencies": {
-    "@vitest/coverage-v8": "^4.0.18",
+    "@vitest/coverage-v8": "^1.6.1",
     "cross-env": "^10.1.0",
     "electron": "^40.4.0",
     "electron-builder": "^26.7.0",
     "ts-loader": "^9.5.4",
     "ts-node": "^10.9.2",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^1.6.1"
   },
   "dependencies": {
     "dotenv": "^16.6.1",
