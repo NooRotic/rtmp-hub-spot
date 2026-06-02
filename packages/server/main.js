@@ -21,8 +21,13 @@ const RTMP_PORT = process.env.RTMP_PORT || 1935;
 const NMS_HTTP_PORT = process.env.NMS_HTTP_PORT || 8000;
 /** @const {number} SIGNALING_PORT - Port used for the HTTPS Express + Socket.io Server */
 const SIGNALING_PORT = process.env.PORT || 4001;
-/** @const {string} BIND_IP - The bind IP for the local servers. Defaults to 0.0.0.0 for LAN exposure. */
-const BIND_IP = process.env.BIND_IP || '0.0.0.0';
+/**
+ * @const {string} BIND_IP - Bind address for the local servers (HTTPS signaling,
+ * NMS, Socket.IO). Loopback-only by default so the app isn't exposed on untrusted
+ * networks (LAN/cafe wifi). Opt into LAN exposure with RHS_BIND_LAN=1, or pin a
+ * specific address with BIND_IP.
+ */
+const BIND_IP = process.env.BIND_IP || (process.env.RHS_BIND_LAN === '1' ? '0.0.0.0' : '127.0.0.1');
 
 /**
  * Broadcast an IPC event to all live BrowserWindow renderer processes.
