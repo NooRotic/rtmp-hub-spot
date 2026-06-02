@@ -43,6 +43,7 @@
       "main.js",
       "preload.js",
       "cert-trust.js",
+      "ffmpeg-args.js",
       "package.json",
       "assets/**/*",
       "../client/dist/**/*"

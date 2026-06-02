@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain, shell, session } = require('electron');
 const { isLoopbackHost } = require('./cert-trust');
+const { buildFfmpegArgs } = require('./ffmpeg-args');
 const path = require('path');
 const os = require('os');
 const https = require('https');
@@ -521,93 +522,29 @@ ipcMain.on('ffmpeg-pipe-start', (event, { hwAccel = 'none', streamKey = 'grid', 
   lastPipeConfig = { hwAccel, streamKey, bitrate: targetBitrate, preset, fps };
   pipeRestartCount = 0;
 
-  const bitrate = targetBitrate;
   activeStreamKey = streamKey;
-  let accelFlags = [];
-
-  if (hwAccel === 'nvidia') {
-    accelFlags = ['-hwaccel nvdec'];
-  }
+  // Pure, unit-tested arg construction (see ffmpeg-args.js). Keeps the encoder/
+  // audio/output flags identical across the upcoming multi-pipe refactor.
+  const args = buildFfmpegArgs({ hwAccel, streamKey, bitrate: targetBitrate, preset, fps, rtmpPort: RTMP_PORT });
 
   videoStream = new PassThrough();
 
-  // Build encoder-specific video output options
-  // preset/tune are libx264-only; hardware encoders use different quality flags
-  let encoderOptions;
-  if (hwAccel === 'nvidia') {
-    encoderOptions = [
-      `-vcodec h264_nvenc`,
-      `-b:v ${bitrate}`,
-      '-preset:v p1',           // p1 = fastest NVENC preset
-      '-tune:v ll',             // ll = low-latency
-    ];
-  } else if (hwAccel === 'amd') {
-    encoderOptions = [
-      `-vcodec h264_amf`,
-      `-b:v ${bitrate}`,
-      '-quality speed',         // AMF quality: speed | balanced | quality
-      '-rc cbr',                // Constant bitrate for streaming
-    ];
-  } else if (hwAccel === 'intel') {
-    encoderOptions = [
-      `-vcodec h264_qsv`,
-      `-b:v ${bitrate}`,
-      '-preset:v veryfast',     // QSV preset
-    ];
-  } else {
-    // Software libx264
-    encoderOptions = [
-      `-vcodec libx264`,
-      `-b:v ${bitrate}`,
-      `-preset ${preset}`,      // User-defined x264 preset
-      '-tune zerolatency',
-    ];
-  }
-
-  // Audio strategy:
-  //  - 'feed-*' keys come from a peer's MediaRecorder (WebM with real Opus audio tracks).
-  //    Remove -an, encode the audio track to AAC.
-  //  - 'grid' and other keys come from canvas.captureStream() which has NO audio.
-  //    Inject a silent lavfi source mapped to the output so RTMP clients (OBS, VLC)
-  //    don't reject the stream for a missing audio codec header.
-  const hasFeedAudio = streamKey.startsWith('feed-');
-  const audioOutputOptions = hasFeedAudio
-    ? ['-c:a aac', '-b:a 128k', '-ar 44100']
-    : ['-map 0:v:0', '-map 1:a:0', '-c:a aac', '-b:a 32k', '-ac 2', '-ar 44100'];
-
   let cmd = ffmpeg(videoStream)
     .inputFormat('matroska') // WebM is a subset of Matroska
-    .inputOptions([
-      // Give FFmpeg enough room to probe for the initial keyframe/header cluster.
-      // Too-small values (probesize 32) cause VP8 "Discarding interframe" errors.
-      '-probesize 5000000',     // 5 MB probe budget — keeps VP8 header parsing reliable
-      '-analyzeduration 500000', // 0.5 s ceiling (down from 1 s); probesize is the real guard
-      '-fflags nobuffer+igndts+genpts',
-      '-flags low_delay',
-      '-err_detect ignore_err',   // Tolerate minor stream errors without crashing
-      ...accelFlags
-    ]);
+    .inputOptions(args.inputOptions);
 
-  // For canvas-sourced streams, add an infinite silent audio source as input 1.
-  if (!hasFeedAudio) {
+  // For canvas-sourced (grid) streams, add an infinite silent audio source as input 1.
+  if (args.needsSilentAudio) {
     cmd = cmd
-      .input('aevalsrc=0:channel_layout=stereo:sample_rate=44100')
+      .input(args.silentAudioInput)
       .inputFormat('lavfi');
   }
 
   broadcastIPC('ffmpeg-status', { state: 'starting', streamKey });
 
   pipeFfmpeg = cmd
-    .outputOptions([
-      '-f flv',
-      ...encoderOptions,
-      '-pix_fmt yuv420p',
-      '-g 30',
-      `-r ${fps}`,              // User-defined framerate
-      '-flush_packets 1',       // Flush every encoded packet to NMS immediately
-      ...audioOutputOptions
-    ])
-    .output(`rtmp://localhost:${RTMP_PORT}/live/${streamKey}`)
+    .outputOptions(args.outputOptions)
+    .output(args.outputUrl)
     .on('start', (cmdLine) => {
       console.log('[FFMPEG] Pipe started:', cmdLine);
       broadcastIPC('ffmpeg-status', { state: 'running', streamKey });
