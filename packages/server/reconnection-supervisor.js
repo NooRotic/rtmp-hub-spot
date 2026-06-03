@@ -39,6 +39,8 @@ function createReconnectionSupervisor({
   const queue = [];
   /** @type {Map<string,number>} id -> timestamp of last startRelay call */
   const lastStart = new Map();
+  // GLOBAL backoff streak (one shared uplink), NOT per-source: a network drop is
+  // link-wide, so any single relay reaching 'live' (notifyLive) clears it for all.
   let streak = 0;
   let scheduled = false;
   let timer = null;
@@ -67,7 +69,9 @@ function createReconnectionSupervisor({
       // at the new longer delay so the thundering-herd guard kicks in.
       reschedule(delay());
     } else if (!scheduled) {
-      // Queue was empty (or no timer running): start immediately (0ms).
+      // Nothing scheduled yet: the first item in an empty queue starts
+      // immediately (0ms); items added while others already wait are paced at
+      // the current delay.
       schedule(wasEmpty ? 0 : delay());
     }
     // else: already scheduled at the right pace — let the existing timer run.
@@ -88,6 +92,13 @@ function createReconnectionSupervisor({
         lastStart.delete(idOf(q));
         queue.splice(i, 1);
       }
+    }
+    // If we just emptied the queue, drop any pending timer so a later enqueue
+    // starts promptly instead of waiting on a stale (possibly long-backoff) timer.
+    if (queue.length === 0 && timer != null) {
+      clearTimer(timer);
+      timer = null;
+      scheduled = false;
     }
   }
 

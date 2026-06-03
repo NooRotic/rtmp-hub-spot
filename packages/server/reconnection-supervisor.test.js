@@ -75,4 +75,45 @@ describe('reconnection-supervisor', () => {
     sup.cancel('grid');
     expect(sup.pending()).toBe(1);
   });
+
+  it('a burst of failures grows the global backoff (capped at maxDelay)', () => {
+    const { sup, started } = makeSup();
+    sup.enqueue({ sourceKey: 'g', destination: D('a', 0) });
+    sup.enqueue({ sourceKey: 'g', destination: D('b', 1) });
+    sup.enqueue({ sourceKey: 'g', destination: D('c', 2) });
+    vi.advanceTimersByTime(0);    // a
+    vi.advanceTimersByTime(1000); // b
+    vi.advanceTimersByTime(1000); // c
+    expect(started).toHaveLength(3);
+    nowVal = 50; // all three fail in a burst -> streak 3 -> delay min(1000*2^3, 8000)=8000
+    sup.enqueue({ sourceKey: 'g', destination: D('a', 0) });
+    sup.enqueue({ sourceKey: 'g', destination: D('b', 1) });
+    sup.enqueue({ sourceKey: 'g', destination: D('c', 2) });
+    vi.advanceTimersByTime(7999);
+    expect(started).toHaveLength(3);
+    vi.advanceTimersByTime(1);
+    expect(started).toHaveLength(4);
+  });
+
+  it('cancel with a destinationId removes only that destination', () => {
+    const { sup } = makeSup();
+    sup.enqueue({ sourceKey: 'g', destination: D('a', 0) });
+    sup.enqueue({ sourceKey: 'g', destination: D('b', 1) });
+    sup.cancel('g', 'a');
+    expect(sup.pending()).toBe(1);
+  });
+
+  it('after cancelling the whole queue, a fresh enqueue starts immediately (no stale-timer wait)', () => {
+    const { sup, started } = makeSup();
+    sup.enqueue({ sourceKey: 'g', destination: D('a', 0) });
+    vi.advanceTimersByTime(0);                                 // 'a' starts
+    expect(started).toHaveLength(1);
+    nowVal = 50;
+    sup.enqueue({ sourceKey: 'g', destination: D('a', 0) });   // fail -> streak 1, ~2000ms timer pending
+    sup.cancel('g');                                            // source stops: must clear the stale timer
+    expect(sup.pending()).toBe(0);
+    sup.enqueue({ sourceKey: 'g', destination: D('a', 0) });   // source restarts
+    vi.advanceTimersByTime(0);
+    expect(started).toHaveLength(2);                            // started immediately, not after 2000ms
+  });
 });
