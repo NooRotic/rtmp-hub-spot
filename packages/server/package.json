@@ -45,6 +45,8 @@
       "cert-trust.js",
       "ffmpeg-args.js",
       "pipe-manager.js",
+      "destinationStore.js",
+      "destinationHandlers.js",
       "package.json",
       "assets/**/*",
       "../client/dist/**/*"
