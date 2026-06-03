@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, shell, session } = require('electron');
 const { isLoopbackHost } = require('./cert-trust');
 const { buildFfmpegArgs } = require('./ffmpeg-args');
+const { createPipeManager } = require('./pipe-manager');
 const path = require('path');
 const os = require('os');
 const https = require('https');
@@ -450,178 +451,60 @@ initializeServer().then(({ nms, server, io }) => {
 });
 
 const { PassThrough } = require('stream');
-let pipeFfmpeg = null;
-let videoStream = null;
-let activeStreamKey = null;
-
-// Auto-restart state: stores the last pipe config so we can restart after a crash
-let lastPipeConfig = null;
-let pipeRestartCount = 0;
-const MAX_PIPE_RESTARTS = 3; // Give up after 3 consecutive unexpected crashes
-let pipeRestartTimeout = null;
 
 /**
- * Restart the FFmpeg pipe using the last known config after an unexpected crash.
- * Respects MAX_PIPE_RESTARTS to avoid infinite restart loops.
- * @param {object} event - The ipcMain event from the original pipe-start call.
+ * Thin fluent-ffmpeg glue: builds and runs the FFmpeg command for one pipe and
+ * returns the running command (exposes .kill()). Kept out of pipe-manager.js so
+ * that module stays free of process spawning and unit-testable; this glue is
+ * covered by the live smoke test.
+ * @returns {object}
  */
-function schedulePipeRestart(event) {
-  if (!lastPipeConfig || pipeRestartCount >= MAX_PIPE_RESTARTS) {
-    console.error(`[FFMPEG] Auto-restart limit reached (${MAX_PIPE_RESTARTS}). Manual restart required.`);
-    broadcastIPC('ffmpeg-status', {
-      state: 'error',
-      streamKey: lastPipeConfig?.streamKey || null,
-      message: `Crashed ${MAX_PIPE_RESTARTS} times — manual restart required.`
-    });
-    return;
-  }
-
-  pipeRestartCount++;
-  const delay = pipeRestartCount * 2000; // 2 s, 4 s, 6 s backoff
-  console.warn(`[FFMPEG] Scheduling auto-restart #${pipeRestartCount} in ${delay}ms...`);
-  broadcastIPC('ffmpeg-status', {
-    state: 'starting',
-    streamKey: lastPipeConfig.streamKey,
-    message: `Restarting (attempt ${pipeRestartCount}/${MAX_PIPE_RESTARTS})…`
-  });
-
-  pipeRestartTimeout = setTimeout(() => {
-    if (!lastPipeConfig) return; // User may have stopped the pipe in the meantime
-    console.log('[FFMPEG] Auto-restarting pipe with last config:', lastPipeConfig);
-    // Re-emit the pipe-start IPC as if the renderer sent it again
-    ipcMain.emit('ffmpeg-pipe-start', event, lastPipeConfig);
-  }, delay);
-}
-
-/**
- * Starts an FFmpeg pipeline that ingests raw WebM frames via standard input (IPC),
- * transcodes them using the chosen hardware encoder preset, and outputs a broadcast-ready
- * FLV stream towards the designated local RTMP ingestion endpoint.
- *
- * @param {string} targetBitrate - Video bitrate string (e.g. '4000k').
- * @param {string} preset - FFmpeg encoder preset (e.g. 'ultrafast', 'fast').
- * @param {string} hwAccel - GPU acceleration selection ('none', 'nvenc', 'amf', 'qsv').
- * @param {number} fps - Framerate constraints for the transcoder (default 30).
- * @param {string} streamKey - Which RTMP bucket this should stream into.
- * @returns {void}
- */
-ipcMain.on('ffmpeg-pipe-start', (event, { hwAccel = 'none', streamKey = 'grid', bitrate: targetBitrate = '2500k', preset = 'ultrafast', fps = 30 }) => {
-  if (pipeFfmpeg) {
-    pipeFfmpeg.kill();
-    videoStream = null;
-    activeStreamKey = null;
-  }
-
-  // Cancel any pending auto-restart timer (user may be manually restarting)
-  if (pipeRestartTimeout) {
-    clearTimeout(pipeRestartTimeout);
-    pipeRestartTimeout = null;
-  }
-
-  // Save config for auto-restart and reset the crash counter for a fresh start
-  lastPipeConfig = { hwAccel, streamKey, bitrate: targetBitrate, preset, fps };
-  pipeRestartCount = 0;
-
-  activeStreamKey = streamKey;
-  // Pure, unit-tested arg construction (see ffmpeg-args.js). Keeps the encoder/
-  // audio/output flags identical across the upcoming multi-pipe refactor.
-  const args = buildFfmpegArgs({ hwAccel, streamKey, bitrate: targetBitrate, preset, fps, rtmpPort: RTMP_PORT });
-
-  videoStream = new PassThrough();
-
+function spawnPipe(videoStream, args, { onStart, onStderr, onError }) {
   let cmd = ffmpeg(videoStream)
     .inputFormat('matroska') // WebM is a subset of Matroska
     .inputOptions(args.inputOptions);
 
   // For canvas-sourced (grid) streams, add an infinite silent audio source as input 1.
   if (args.needsSilentAudio) {
-    cmd = cmd
-      .input(args.silentAudioInput)
-      .inputFormat('lavfi');
+    cmd = cmd.input(args.silentAudioInput).inputFormat('lavfi');
   }
 
-  broadcastIPC('ffmpeg-status', { state: 'starting', streamKey });
-
-  pipeFfmpeg = cmd
+  return cmd
     .outputOptions(args.outputOptions)
     .output(args.outputUrl)
-    .on('start', (cmdLine) => {
-      console.log('[FFMPEG] Pipe started:', cmdLine);
-      broadcastIPC('ffmpeg-status', { state: 'running', streamKey });
-    })
-    .on('stderr', (line) => {
-      // Parse the periodic stats line FFmpeg writes to stderr, e.g.:
-      // frame=  120 fps= 29 q=22.0 size=   256kB time=00:00:04.06 bitrate= 516.7kbits/s speed=0.958x
-      const statsMatch = line.match(
-        /frame=\s*(\d+)\s+fps=\s*([\d.]+).*?size=\s*([\d.]+\s*\w+).*?time=([\d:.]+).*?bitrate=\s*([\d.]+\s*\S+).*?speed=\s*([\d.]+)x/
-      );
-      if (statsMatch) {
-        broadcastIPC('ffmpeg-stats', {
-          frame:     parseInt(statsMatch[1]),
-          fps:       parseFloat(statsMatch[2]),
-          size:      statsMatch[3].trim(),
-          time:      statsMatch[4],
-          bitrate:   statsMatch[5].trim(),
-          speed:     parseFloat(statsMatch[6]),
-          streamKey
-        });
-      } else if (!line.includes('Discarding interframe') && !line.includes('Error submitting packet')) {
-        console.log('[FFMPEG-STDERR]', line);
-      }
-    })
-    .on('error', (err) => {
-      // SIGKILL / SIGINT are expected during a user-initiated stop — not real errors
-      const isExpectedKill = err.message.includes('SIGKILL') || err.message.includes('SIGINT') || err.message.includes('killed');
-      if (!isExpectedKill) {
-        console.error('[FFMPEG] Unexpected crash:', err.message);
-        broadcastIPC('ffmpeg-status', { state: 'error', streamKey, message: err.message });
-        if (event.sender && !event.sender.isDestroyed()) {
-          event.sender.send('ffmpeg-error', err.message);
-        }
-        // Attempt auto-restart so the broadcast recovers without manual intervention
-        schedulePipeRestart(event);
-      } else {
-        console.log('[FFMPEG] Process stopped cleanly.');
-        lastPipeConfig = null; // Clear config so auto-restart doesn't trigger after a clean stop
-        broadcastIPC('ffmpeg-status', { state: 'stopped', streamKey: null });
-      }
-    })
+    .on('start', onStart)
+    .on('stderr', onStderr)
+    .on('error', onError)
     .run();
+}
+
+// Multi-pipe engine (audit #1): one FFmpeg process per streamKey so the grid and
+// per-feed streams publish concurrently. Lifecycle/routing/restart logic lives in
+// pipe-manager.js (unit-tested); only the spawn glue above touches fluent-ffmpeg.
+const pipeManager = createPipeManager({
+  spawnPipe,
+  PassThrough,
+  buildFfmpegArgs,
+  broadcastIPC,
+  rtmpPort: RTMP_PORT,
+});
+ipcMain.on('ffmpeg-pipe-start', (event, config = {}) => {
+  // streamKey identifies the pipe; other fields default inside buildFfmpegArgs.
+  pipeManager.start({ streamKey: 'grid', ...config }, { sender: event.sender });
 });
 
-let internalChunkCount = 0;
-ipcMain.on('ffmpeg-pipe-chunk', (event, data) => {
-  const { chunk, streamKey } = data;
-  if (!videoStream || streamKey !== activeStreamKey) {
-    return;
-  }
-  const buffer = Buffer.from(chunk);
-  videoStream.write(buffer);
-  
-  internalChunkCount++;
-  if (internalChunkCount <= 5 || internalChunkCount % 50 === 0) {
-    console.log(`[IPC] Received chunk #${internalChunkCount} (${buffer.length} bytes) for ${streamKey}`);
-  }
+ipcMain.on('ffmpeg-pipe-chunk', (event, { chunk, streamKey } = {}) => {
+  pipeManager.writeChunk(streamKey, chunk);
 });
 
-ipcMain.on('ffmpeg-pipe-stop', () => {
-  // Cancel any pending auto-restart before killing the process
-  if (pipeRestartTimeout) {
-    clearTimeout(pipeRestartTimeout);
-    pipeRestartTimeout = null;
+// Backward-compatible stop: a streamKey stops that one pipe; no key stops all.
+// (The current renderer sends no key; the redesigned UI will send a streamKey.)
+ipcMain.on('ffmpeg-pipe-stop', (event, data = {}) => {
+  if (data && data.streamKey) {
+    pipeManager.stop(data.streamKey);
+  } else {
+    pipeManager.stopAll();
   }
-  lastPipeConfig = null;  // Prevent schedulePipeRestart from triggering on the SIGKILL below
-  pipeRestartCount = 0;
-
-  if (videoStream) {
-    videoStream.end();
-    videoStream = null;
-  }
-  if (pipeFfmpeg) {
-    pipeFfmpeg.kill();
-    pipeFfmpeg = null;
-  }
-  broadcastIPC('ffmpeg-status', { state: 'stopped', streamKey: null });
 });
 
 
