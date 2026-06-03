@@ -442,6 +442,7 @@ initializeServer().then(({ nms, server, io }) => {
 
   // Cleanup on app quit
   app.on('before-quit', () => {
+    pipeManager.stopAll(); // kill any running FFmpeg pipes so no ffmpeg.exe orphans on quit
     clearInterval(statusInterval);
     if (server) server.close();
     if (nms) nms.stop();
