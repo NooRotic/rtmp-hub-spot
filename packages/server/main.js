@@ -2,6 +2,11 @@ const { app, BrowserWindow, ipcMain, shell, session } = require('electron');
 const { isLoopbackHost } = require('./cert-trust');
 const { buildFfmpegArgs } = require('./ffmpeg-args');
 const { createPipeManager } = require('./pipe-manager');
+const { buildRelayArgs } = require('./relay-args');
+const { createRelayManager } = require('./relay-manager');
+const { createReconnectionSupervisor } = require('./reconnection-supervisor');
+const { createBroadcastOrchestrator } = require('./broadcast-orchestrator');
+const destinationStore = require('./destinationStore');
 const path = require('path');
 const os = require('os');
 const https = require('https');
@@ -286,6 +291,7 @@ initializeServer().then(({ nms, server, io }) => {
     const streamKey = safePath.split('/').pop() || safePath;
     console.log(`[RTMP] Publisher connected: ${streamKey} from ${data.ip}`);
     rtmpPublishers.set(streamKey, { ip: data.ip, path: safePath, startTime: Date.now() });
+    broadcastOrchestrator.onSourcePublished(streamKey);
     broadcastStatus();
   });
 
@@ -295,6 +301,7 @@ initializeServer().then(({ nms, server, io }) => {
     const streamKey = safePath.split('/').pop() || safePath;
     console.log(`[RTMP] Publisher disconnected: ${streamKey}`);
     rtmpPublishers.delete(streamKey);
+    broadcastOrchestrator.onSourceUnpublished(streamKey);
     // Also stop any active recording for this stream
     const rec = recordingSessions.get(streamKey);
     if (rec) {
@@ -447,6 +454,7 @@ initializeServer().then(({ nms, server, io }) => {
   // Cleanup on app quit
   app.on('before-quit', () => {
     pipeManager.stopAll(); // kill any running FFmpeg pipes so no ffmpeg.exe orphans on quit
+    relayManager.stopAll(); // stop all relay fan-out processes
     clearInterval(statusInterval);
     if (server) server.close();
     if (nms) nms.stop();
@@ -493,6 +501,44 @@ const pipeManager = createPipeManager({
   broadcastIPC,
   rtmpPort: RTMP_PORT,
 });
+
+/**
+ * Thin fluent-ffmpeg glue for a copy relay: pull from local NMS, copy to the
+ * platform. Kept out of relay-manager.js so that module stays process-free and
+ * unit-testable; this glue is covered by the live smoke test.
+ */
+function spawnRelay(args, { onStart, onStderr, onError }) {
+  return ffmpeg(args.inputUrl)
+    .inputOptions(args.inputOptions)
+    .outputOptions(args.outputOptions)
+    .output(args.outputUrl)
+    .on('start', onStart)
+    .on('stderr', onStderr)
+    .on('error', onError)
+    .run();
+}
+
+// Relay fan-out (Multi-Stream Pro): one copy-relay per destination, scheduled
+// through a single supervisor so reconnects after a network drop are staggered.
+let reconnectionSupervisor; // declared first for the relay-manager callbacks
+const relayManager = createRelayManager({
+  spawnRelay,
+  buildRelayArgs,
+  broadcastIPC,
+  rtmpPort: RTMP_PORT,
+  onLive: (sourceKey, destinationId) => reconnectionSupervisor.notifyLive(sourceKey, destinationId),
+  onTransientFailure: (item) => reconnectionSupervisor.enqueue(item),
+});
+reconnectionSupervisor = createReconnectionSupervisor({
+  startRelay: (item) => relayManager.start(item.sourceKey, item.destination),
+});
+const broadcastOrchestrator = createBroadcastOrchestrator({
+  supervisor: reconnectionSupervisor,
+  relayManager,
+  listBindings: () => destinationStore.loadBindings(),
+  listDestinations: () => destinationStore.loadDestinations(),
+});
+
 ipcMain.on('ffmpeg-pipe-start', (event, config = {}) => {
   // streamKey identifies the pipe; other fields default inside buildFfmpegArgs.
   pipeManager.start({ streamKey: 'grid', ...config }, { sender: event.sender });

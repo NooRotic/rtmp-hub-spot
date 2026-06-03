@@ -32,6 +32,12 @@ const INVOKE_CHANNELS = new Set([
   'detect-gpu-encoder',
   'start-recording',
   'get-recordings-status',
+  'destinations:list',
+  'destinations:add',
+  'destinations:remove',
+  'destinations:update',
+  'bindings:list',
+  'bindings:set',
 ]);
 
 // Main -> renderer events the renderer subscribes to.
@@ -39,6 +45,8 @@ const ON_CHANNELS = new Set([
   'ffmpeg-status',
   'ffmpeg-stats',
   'ffmpeg-error',
+  'relay-status',
+  'relay-stats',
 ]);
 
 // Maps each renderer listener to the wrapper actually registered on
