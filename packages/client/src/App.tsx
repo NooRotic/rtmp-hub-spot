@@ -821,8 +821,6 @@ function App() {
                 </div>
 
                 <div className="help-box">
-                  <strong>What is "SET V-CAM"?</strong>
-                  <p>This button routes the specific user's video feed into a virtual camera device on your system.</p>
                   <strong>Rendering Options:</strong>
                   <ul>
                     <li>Soft: CPU encoding (Safe)</li>

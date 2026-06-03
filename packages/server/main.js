@@ -1,4 +1,7 @@
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, session } = require('electron');
+const { isLoopbackHost } = require('./cert-trust');
+const { buildFfmpegArgs } = require('./ffmpeg-args');
+const { createPipeManager } = require('./pipe-manager');
 const path = require('path');
 const os = require('os');
 const https = require('https');
@@ -21,8 +24,17 @@ const RTMP_PORT = process.env.RTMP_PORT || 1935;
 const NMS_HTTP_PORT = process.env.NMS_HTTP_PORT || 8000;
 /** @const {number} SIGNALING_PORT - Port used for the HTTPS Express + Socket.io Server */
 const SIGNALING_PORT = process.env.PORT || 4001;
-/** @const {string} BIND_IP - The bind IP for the local servers. Defaults to 0.0.0.0 for LAN exposure. */
-const BIND_IP = process.env.BIND_IP || '0.0.0.0';
+/**
+ * @const {string} BIND_IP - Bind address for the local servers (HTTPS signaling,
+ * NMS, Socket.IO). Defaults to 0.0.0.0 so LAN devices — phones joining as mobile
+ * cameras over WiFi — can reach the signaling/media servers. Restrict to loopback
+ * with RHS_BIND_LOOPBACK=1, or pin a specific address with BIND_IP.
+ *
+ * SECURITY: 0.0.0.0 + wildcard CORS + no auth means anyone on the LAN can join.
+ * A session/room PIN is required before any public launch (see
+ * memory: lan-mobile-camera-networking).
+ */
+const BIND_IP = process.env.BIND_IP || (process.env.RHS_BIND_LOOPBACK === '1' ? '127.0.0.1' : '0.0.0.0');
 
 /**
  * Broadcast an IPC event to all live BrowserWindow renderer processes.
@@ -48,13 +60,63 @@ function broadcastIPC(channel, data) {
  *
  * @returns {void}
  */
+/**
+ * Applies a Content-Security-Policy to the renderer via response headers.
+ * Production is strict (no eval, no remote script/connect origins beyond
+ * localhost); development relaxes script-src for Vite HMR. Both allow the
+ * inline polyfill in index.html (simple-peer needs window.global/process) and
+ * inline styles (the app uses style={{…}} extensively).
+ * @returns {void}
+ */
+function applyContentSecurityPolicy() {
+  const common =
+    "default-src 'self'; " +
+    "style-src 'self' 'unsafe-inline'; " +
+    "img-src 'self' data: blob:; " +
+    "media-src 'self' blob:; " +
+    "font-src 'self' data:; " +
+    "connect-src 'self' https://localhost:* wss://localhost:* ws://localhost:*;";
+  const scriptSrc = app.isPackaged
+    ? "script-src 'self' 'unsafe-inline'; "                  // prod: inline polyfill ok, no eval
+    : "script-src 'self' 'unsafe-inline' 'unsafe-eval'; ";   // dev: Vite HMR needs eval
+  const csp = scriptSrc + common;
+
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [csp],
+      },
+    });
+  });
+}
+
+/**
+ * Trusts self-signed certificates for loopback hosts (the HTTPS signaling server
+ * and the Vite dev server). Uses the session verify proc rather than
+ * app.on('certificate-error') because the proc reliably covers EVERY request —
+ * including the renderer's wss:// Socket.IO connection, which the event misses.
+ * @returns {void}
+ */
+function trustLoopbackCertificates() {
+  session.defaultSession.setCertificateVerifyProc((request, callback) => {
+    // 0 = trust; -3 = defer to Chromium's default verification (rejects bad certs)
+    callback(isLoopbackHost(request.hostname) ? 0 : -3);
+  });
+}
+
 function createWindow() {
+  applyContentSecurityPolicy();
+  trustLoopbackCertificates();
   const win = new BrowserWindow({
     width: 1024,
     height: 768,
     webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+      preload: path.join(__dirname, 'preload.js'),
+      webSecurity: true,
       autoplayPolicy: 'no-user-gesture-required',
     },
     frame: false, // Custom WinNT frame
@@ -74,8 +136,10 @@ function createWindow() {
   });
 }
 
-// Allow self-signed certs in development
-app.commandLine.appendSwitch('ignore-certificate-errors');
+// Cert trust is handled by session.setCertificateVerifyProc in createWindow()
+// (see trustLoopbackCertificates) — it covers ALL requests, including the
+// renderer's wss:// Socket.IO connection, which app.on('certificate-error') does
+// not reliably handle. This replaced the app-wide ignore-certificate-errors switch.
 
 const nmsConfig = {
   bind: BIND_IP, // Set the bind IP for the entire server
@@ -382,6 +446,7 @@ initializeServer().then(({ nms, server, io }) => {
 
   // Cleanup on app quit
   app.on('before-quit', () => {
+    pipeManager.stopAll(); // kill any running FFmpeg pipes so no ffmpeg.exe orphans on quit
     clearInterval(statusInterval);
     if (server) server.close();
     if (nms) nms.stop();
@@ -390,283 +455,61 @@ initializeServer().then(({ nms, server, io }) => {
   console.error('[CRITICAL] Server Initialization Failed:', err);
 });
 
-let ffmpegProcess = null;
-
-ipcMain.on('start-virtual-cam', (event, streamUrl) => {
-  if (ffmpegProcess) {
-    ffmpegProcess.kill();
-  }
-
-  ffmpegProcess = ffmpeg(streamUrl)
-    .inputOptions([
-      '-fflags nobuffer',
-      '-flags low_delay'
-    ])
-    .outputOptions([
-      '-f flv',
-      '-vcodec libx264',
-      '-preset ultrafast',
-      '-tune zerolatency',
-      '-pix_fmt yuv420p',
-      '-g 30'
-    ])
-    .output(`rtmp://localhost:${RTMP_PORT}/live/admin`)
-    .on('start', (commandLine) => {
-      console.log('Spawned FFmpeg with command: ' + commandLine);
-    })
-    .on('error', (err) => {
-      console.log('An error occurred: ' + err.message);
-    })
-    .on('end', () => {
-      console.log('Processing finished !');
-    })
-    .run();
-});
-
-ipcMain.on('stop-virtual-cam', () => {
-  if (ffmpegProcess) {
-    ffmpegProcess.kill();
-    ffmpegProcess = null;
-  }
-});
-
 const { PassThrough } = require('stream');
-let pipeFfmpeg = null;
-let videoStream = null;
-let activeStreamKey = null;
-
-// Auto-restart state: stores the last pipe config so we can restart after a crash
-let lastPipeConfig = null;
-let pipeRestartCount = 0;
-const MAX_PIPE_RESTARTS = 3; // Give up after 3 consecutive unexpected crashes
-let pipeRestartTimeout = null;
 
 /**
- * Restart the FFmpeg pipe using the last known config after an unexpected crash.
- * Respects MAX_PIPE_RESTARTS to avoid infinite restart loops.
- * @param {object} event - The ipcMain event from the original pipe-start call.
+ * Thin fluent-ffmpeg glue: builds and runs the FFmpeg command for one pipe and
+ * returns the running command (exposes .kill()). Kept out of pipe-manager.js so
+ * that module stays free of process spawning and unit-testable; this glue is
+ * covered by the live smoke test.
+ * @returns {object}
  */
-function schedulePipeRestart(event) {
-  if (!lastPipeConfig || pipeRestartCount >= MAX_PIPE_RESTARTS) {
-    console.error(`[FFMPEG] Auto-restart limit reached (${MAX_PIPE_RESTARTS}). Manual restart required.`);
-    broadcastIPC('ffmpeg-status', {
-      state: 'error',
-      streamKey: lastPipeConfig?.streamKey || null,
-      message: `Crashed ${MAX_PIPE_RESTARTS} times — manual restart required.`
-    });
-    return;
-  }
-
-  pipeRestartCount++;
-  const delay = pipeRestartCount * 2000; // 2 s, 4 s, 6 s backoff
-  console.warn(`[FFMPEG] Scheduling auto-restart #${pipeRestartCount} in ${delay}ms...`);
-  broadcastIPC('ffmpeg-status', {
-    state: 'starting',
-    streamKey: lastPipeConfig.streamKey,
-    message: `Restarting (attempt ${pipeRestartCount}/${MAX_PIPE_RESTARTS})…`
-  });
-
-  pipeRestartTimeout = setTimeout(() => {
-    if (!lastPipeConfig) return; // User may have stopped the pipe in the meantime
-    console.log('[FFMPEG] Auto-restarting pipe with last config:', lastPipeConfig);
-    // Re-emit the pipe-start IPC as if the renderer sent it again
-    ipcMain.emit('ffmpeg-pipe-start', event, lastPipeConfig);
-  }, delay);
-}
-
-/**
- * Starts an FFmpeg pipeline that ingests raw WebM frames via standard input (IPC),
- * transcodes them using the chosen hardware encoder preset, and outputs a broadcast-ready
- * FLV stream towards the designated local RTMP ingestion endpoint.
- *
- * @param {string} targetBitrate - Video bitrate string (e.g. '4000k').
- * @param {string} preset - FFmpeg encoder preset (e.g. 'ultrafast', 'fast').
- * @param {string} hwAccel - GPU acceleration selection ('none', 'nvenc', 'amf', 'qsv').
- * @param {number} fps - Framerate constraints for the transcoder (default 30).
- * @param {string} streamKey - Which RTMP bucket this should stream into.
- * @returns {void}
- */
-ipcMain.on('ffmpeg-pipe-start', (event, { hwAccel = 'none', streamKey = 'grid', bitrate: targetBitrate = '2500k', preset = 'ultrafast', fps = 30 }) => {
-  if (pipeFfmpeg) {
-    pipeFfmpeg.kill();
-    videoStream = null;
-    activeStreamKey = null;
-  }
-
-  // Cancel any pending auto-restart timer (user may be manually restarting)
-  if (pipeRestartTimeout) {
-    clearTimeout(pipeRestartTimeout);
-    pipeRestartTimeout = null;
-  }
-
-  // Save config for auto-restart and reset the crash counter for a fresh start
-  lastPipeConfig = { hwAccel, streamKey, bitrate: targetBitrate, preset, fps };
-  pipeRestartCount = 0;
-
-  const bitrate = targetBitrate;
-  activeStreamKey = streamKey;
-  let accelFlags = [];
-
-  if (hwAccel === 'nvidia') {
-    accelFlags = ['-hwaccel nvdec'];
-  }
-
-  videoStream = new PassThrough();
-
-  // Build encoder-specific video output options
-  // preset/tune are libx264-only; hardware encoders use different quality flags
-  let encoderOptions;
-  if (hwAccel === 'nvidia') {
-    encoderOptions = [
-      `-vcodec h264_nvenc`,
-      `-b:v ${bitrate}`,
-      '-preset:v p1',           // p1 = fastest NVENC preset
-      '-tune:v ll',             // ll = low-latency
-    ];
-  } else if (hwAccel === 'amd') {
-    encoderOptions = [
-      `-vcodec h264_amf`,
-      `-b:v ${bitrate}`,
-      '-quality speed',         // AMF quality: speed | balanced | quality
-      '-rc cbr',                // Constant bitrate for streaming
-    ];
-  } else if (hwAccel === 'intel') {
-    encoderOptions = [
-      `-vcodec h264_qsv`,
-      `-b:v ${bitrate}`,
-      '-preset:v veryfast',     // QSV preset
-    ];
-  } else {
-    // Software libx264
-    encoderOptions = [
-      `-vcodec libx264`,
-      `-b:v ${bitrate}`,
-      `-preset ${preset}`,      // User-defined x264 preset
-      '-tune zerolatency',
-    ];
-  }
-
-  // Audio strategy:
-  //  - 'feed-*' keys come from a peer's MediaRecorder (WebM with real Opus audio tracks).
-  //    Remove -an, encode the audio track to AAC.
-  //  - 'grid' and other keys come from canvas.captureStream() which has NO audio.
-  //    Inject a silent lavfi source mapped to the output so RTMP clients (OBS, VLC)
-  //    don't reject the stream for a missing audio codec header.
-  const hasFeedAudio = streamKey.startsWith('feed-');
-  const audioOutputOptions = hasFeedAudio
-    ? ['-c:a aac', '-b:a 128k', '-ar 44100']
-    : ['-map 0:v:0', '-map 1:a:0', '-c:a aac', '-b:a 32k', '-ac 2', '-ar 44100'];
-
+function spawnPipe(videoStream, args, { onStart, onStderr, onError }) {
   let cmd = ffmpeg(videoStream)
     .inputFormat('matroska') // WebM is a subset of Matroska
-    .inputOptions([
-      // Give FFmpeg enough room to probe for the initial keyframe/header cluster.
-      // Too-small values (probesize 32) cause VP8 "Discarding interframe" errors.
-      '-probesize 5000000',     // 5 MB probe budget — keeps VP8 header parsing reliable
-      '-analyzeduration 500000', // 0.5 s ceiling (down from 1 s); probesize is the real guard
-      '-fflags nobuffer+igndts+genpts',
-      '-flags low_delay',
-      '-err_detect ignore_err',   // Tolerate minor stream errors without crashing
-      ...accelFlags
-    ]);
+    .inputOptions(args.inputOptions);
 
-  // For canvas-sourced streams, add an infinite silent audio source as input 1.
-  if (!hasFeedAudio) {
-    cmd = cmd
-      .input('aevalsrc=0:channel_layout=stereo:sample_rate=44100')
-      .inputFormat('lavfi');
+  // For canvas-sourced (grid) streams, add an infinite silent audio source as input 1.
+  if (args.needsSilentAudio) {
+    cmd = cmd.input(args.silentAudioInput).inputFormat('lavfi');
   }
 
-  broadcastIPC('ffmpeg-status', { state: 'starting', streamKey });
-
-  pipeFfmpeg = cmd
-    .outputOptions([
-      '-f flv',
-      ...encoderOptions,
-      '-pix_fmt yuv420p',
-      '-g 30',
-      `-r ${fps}`,              // User-defined framerate
-      '-flush_packets 1',       // Flush every encoded packet to NMS immediately
-      ...audioOutputOptions
-    ])
-    .output(`rtmp://localhost:${RTMP_PORT}/live/${streamKey}`)
-    .on('start', (cmdLine) => {
-      console.log('[FFMPEG] Pipe started:', cmdLine);
-      broadcastIPC('ffmpeg-status', { state: 'running', streamKey });
-    })
-    .on('stderr', (line) => {
-      // Parse the periodic stats line FFmpeg writes to stderr, e.g.:
-      // frame=  120 fps= 29 q=22.0 size=   256kB time=00:00:04.06 bitrate= 516.7kbits/s speed=0.958x
-      const statsMatch = line.match(
-        /frame=\s*(\d+)\s+fps=\s*([\d.]+).*?size=\s*([\d.]+\s*\w+).*?time=([\d:.]+).*?bitrate=\s*([\d.]+\s*\S+).*?speed=\s*([\d.]+)x/
-      );
-      if (statsMatch) {
-        broadcastIPC('ffmpeg-stats', {
-          frame:     parseInt(statsMatch[1]),
-          fps:       parseFloat(statsMatch[2]),
-          size:      statsMatch[3].trim(),
-          time:      statsMatch[4],
-          bitrate:   statsMatch[5].trim(),
-          speed:     parseFloat(statsMatch[6]),
-          streamKey
-        });
-      } else if (!line.includes('Discarding interframe') && !line.includes('Error submitting packet')) {
-        console.log('[FFMPEG-STDERR]', line);
-      }
-    })
-    .on('error', (err) => {
-      // SIGKILL / SIGINT are expected during a user-initiated stop — not real errors
-      const isExpectedKill = err.message.includes('SIGKILL') || err.message.includes('SIGINT') || err.message.includes('killed');
-      if (!isExpectedKill) {
-        console.error('[FFMPEG] Unexpected crash:', err.message);
-        broadcastIPC('ffmpeg-status', { state: 'error', streamKey, message: err.message });
-        if (event.sender && !event.sender.isDestroyed()) {
-          event.sender.send('ffmpeg-error', err.message);
-        }
-        // Attempt auto-restart so the broadcast recovers without manual intervention
-        schedulePipeRestart(event);
-      } else {
-        console.log('[FFMPEG] Process stopped cleanly.');
-        lastPipeConfig = null; // Clear config so auto-restart doesn't trigger after a clean stop
-        broadcastIPC('ffmpeg-status', { state: 'stopped', streamKey: null });
-      }
-    })
+  return cmd
+    .outputOptions(args.outputOptions)
+    .output(args.outputUrl)
+    .on('start', onStart)
+    .on('stderr', onStderr)
+    .on('error', onError)
     .run();
+}
+
+// Multi-pipe engine (audit #1): one FFmpeg process per streamKey so the grid and
+// per-feed streams publish concurrently. Lifecycle/routing/restart logic lives in
+// pipe-manager.js (unit-tested); only the spawn glue above touches fluent-ffmpeg.
+const pipeManager = createPipeManager({
+  spawnPipe,
+  PassThrough,
+  buildFfmpegArgs,
+  broadcastIPC,
+  rtmpPort: RTMP_PORT,
+});
+ipcMain.on('ffmpeg-pipe-start', (event, config = {}) => {
+  // streamKey identifies the pipe; other fields default inside buildFfmpegArgs.
+  pipeManager.start({ streamKey: 'grid', ...config }, { sender: event.sender });
 });
 
-let internalChunkCount = 0;
-ipcMain.on('ffmpeg-pipe-chunk', (event, data) => {
-  const { chunk, streamKey } = data;
-  if (!videoStream || streamKey !== activeStreamKey) {
-    return;
-  }
-  const buffer = Buffer.from(chunk);
-  videoStream.write(buffer);
-  
-  internalChunkCount++;
-  if (internalChunkCount <= 5 || internalChunkCount % 50 === 0) {
-    console.log(`[IPC] Received chunk #${internalChunkCount} (${buffer.length} bytes) for ${streamKey}`);
-  }
+ipcMain.on('ffmpeg-pipe-chunk', (event, { chunk, streamKey } = {}) => {
+  pipeManager.writeChunk(streamKey, chunk);
 });
 
-ipcMain.on('ffmpeg-pipe-stop', () => {
-  // Cancel any pending auto-restart before killing the process
-  if (pipeRestartTimeout) {
-    clearTimeout(pipeRestartTimeout);
-    pipeRestartTimeout = null;
+// Backward-compatible stop: a streamKey stops that one pipe; no key stops all.
+// (The current renderer sends no key; the redesigned UI will send a streamKey.)
+ipcMain.on('ffmpeg-pipe-stop', (event, data = {}) => {
+  if (data && data.streamKey) {
+    pipeManager.stop(data.streamKey);
+  } else {
+    pipeManager.stopAll();
   }
-  lastPipeConfig = null;  // Prevent schedulePipeRestart from triggering on the SIGKILL below
-  pipeRestartCount = 0;
-
-  if (videoStream) {
-    videoStream.end();
-    videoStream = null;
-  }
-  if (pipeFfmpeg) {
-    pipeFfmpeg.kill();
-    pipeFfmpeg = null;
-  }
-  broadcastIPC('ffmpeg-status', { state: 'stopped', streamKey: null });
 });
 
 

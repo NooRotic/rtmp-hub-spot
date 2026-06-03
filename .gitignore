@@ -10,3 +10,6 @@ jsDocs/
 .claude/
 CLAUDE.md
 Thumbs.db
+
+# Test coverage output
+coverage/
