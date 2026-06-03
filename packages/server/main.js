@@ -24,11 +24,15 @@ const NMS_HTTP_PORT = process.env.NMS_HTTP_PORT || 8000;
 const SIGNALING_PORT = process.env.PORT || 4001;
 /**
  * @const {string} BIND_IP - Bind address for the local servers (HTTPS signaling,
- * NMS, Socket.IO). Loopback-only by default so the app isn't exposed on untrusted
- * networks (LAN/cafe wifi). Opt into LAN exposure with RHS_BIND_LAN=1, or pin a
- * specific address with BIND_IP.
+ * NMS, Socket.IO). Defaults to 0.0.0.0 so LAN devices — phones joining as mobile
+ * cameras over WiFi — can reach the signaling/media servers. Restrict to loopback
+ * with RHS_BIND_LOOPBACK=1, or pin a specific address with BIND_IP.
+ *
+ * SECURITY: 0.0.0.0 + wildcard CORS + no auth means anyone on the LAN can join.
+ * A session/room PIN is required before any public launch (see
+ * memory: lan-mobile-camera-networking).
  */
-const BIND_IP = process.env.BIND_IP || (process.env.RHS_BIND_LAN === '1' ? '0.0.0.0' : '127.0.0.1');
+const BIND_IP = process.env.BIND_IP || (process.env.RHS_BIND_LOOPBACK === '1' ? '127.0.0.1' : '0.0.0.0');
 
 /**
  * Broadcast an IPC event to all live BrowserWindow renderer processes.
