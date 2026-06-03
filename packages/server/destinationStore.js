@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const FILE_NAME = 'destinations.json';
+const BINDINGS_FILE = 'bindings.json';
 
 /**
  * Creates a destination store bound to its dependencies. Keeps stream keys
@@ -62,12 +63,37 @@ function createDestinationStore({ getUserDataDir, safeStorage }) {
     );
   }
 
+  const bindingsPath = () => path.join(getUserDataDir(), BINDINGS_FILE);
+
+  function loadBindings() {
+    const file = bindingsPath();
+    if (!fs.existsSync(file)) return [];
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  }
+
+  function saveBindings(list) {
+    fs.writeFileSync(bindingsPath(), JSON.stringify(list, null, 2), 'utf8');
+  }
+
+  function setBinding(binding) {
+    const list = loadBindings();
+    const i = list.findIndex(
+      (b) => b.sourceKey === binding.sourceKey && b.destinationId === binding.destinationId,
+    );
+    if (i >= 0) list[i] = binding;
+    else list.push(binding);
+    saveBindings(list);
+  }
+
   return {
     loadDestinations,
     saveDestinations,
     addDestination,
     removeDestination,
     updateDestination,
+    loadBindings,
+    saveBindings,
+    setBinding,
   };
 }
 
@@ -93,4 +119,7 @@ module.exports = {
   addDestination: (...args) => getDefaultStore().addDestination(...args),
   removeDestination: (...args) => getDefaultStore().removeDestination(...args),
   updateDestination: (...args) => getDefaultStore().updateDestination(...args),
+  loadBindings: (...args) => getDefaultStore().loadBindings(...args),
+  saveBindings: (...args) => getDefaultStore().saveBindings(...args),
+  setBinding: (...args) => getDefaultStore().setBinding(...args),
 };

@@ -105,3 +105,33 @@ describe('destinationStore', () => {
     expect(loaded.map((d) => d.id)).toEqual(['1', '2']);
   });
 });
+
+describe('destinationStore bindings', () => {
+  function tmpStore() {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dest-store-'));
+    const store = createDestinationStore({
+      getUserDataDir: () => dir,
+      safeStorage: {
+        isEncryptionAvailable: () => true,
+        encryptString: (s) => Buffer.from(s),
+        decryptString: (b) => b.toString(),
+      },
+    });
+    return { store, dir };
+  }
+
+  it('returns [] when no bindings file exists', () => {
+    const { store } = tmpStore();
+    expect(store.loadBindings()).toEqual([]);
+  });
+
+  it('upserts a binding by (sourceKey, destinationId)', () => {
+    const { store } = tmpStore();
+    store.setBinding({ sourceKey: 'grid', destinationId: 'yt', active: true });
+    store.setBinding({ sourceKey: 'grid', destinationId: 'yt', active: false }); // update
+    store.setBinding({ sourceKey: 'grid', destinationId: 'kick', active: true });
+    const list = store.loadBindings();
+    expect(list).toHaveLength(2);
+    expect(list.find((b) => b.destinationId === 'yt').active).toBe(false);
+  });
+});
