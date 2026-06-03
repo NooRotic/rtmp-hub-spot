@@ -12,6 +12,9 @@ describe('slugifyStreamKey', () => {
   it('falls back to "feed" for empty/punctuation-only input', () => {
     expect(slugifyStreamKey('!!!')).toBe('feed');
   });
+  it('strips accents via NFKD normalization', () => {
+    expect(slugifyStreamKey('José Crème Brûlée')).toBe('jose-creme-brulee');
+  });
 });
 
 describe('feedKey', () => {
