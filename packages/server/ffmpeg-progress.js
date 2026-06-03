@@ -6,11 +6,14 @@
  * one place. Also captures the optional `drop=` field, which appears when an
  * output can't keep up — the key "falling behind" signal for relays.
  *
+ * Lines with non-numeric bitrate/speed (e.g. 'bitrate=N/A', 'speed=N/Ax', emitted briefly at startup or during a full stall) do not match and return null by design — this preserves pipe-manager's prior behavior.
+ *
  * @param {string} line - one stderr line from ffmpeg
  * @returns {null | {frame:number, fps:number, size:string, time:string,
  *                   bitrate:string, speed:number, droppedFrames:(number|undefined)}}
  */
 function parseFfmpegProgress(line) {
+  if (typeof line !== 'string') return null;
   const m = line.match(
     /frame=\s*(\d+)\s+fps=\s*([\d.]+).*?size=\s*([\d.]+\s*\w+).*?time=([\d:.]+).*?bitrate=\s*([\d.]+\s*\S+).*?speed=\s*([\d.]+)x/,
   );

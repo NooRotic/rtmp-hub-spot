@@ -28,4 +28,15 @@ describe('parseFfmpegProgress', () => {
   it('returns null for a non-progress line', () => {
     expect(parseFfmpegProgress('Input #0, matroska,webm')).toBeNull();
   });
+
+  it('returns null for non-string input', () => {
+    expect(parseFfmpegProgress(null)).toBeNull();
+    expect(parseFfmpegProgress(undefined)).toBeNull();
+  });
+
+  it('reports droppedFrames: 0 (not undefined) when drop=0', () => {
+    const line =
+      'frame=  10 fps= 30 q=28.0 drop=0 size=   12kB time=00:00:00.33 bitrate=2500.0kbits/s speed=1.0x';
+    expect(parseFfmpegProgress(line).droppedFrames).toBe(0);
+  });
 });
