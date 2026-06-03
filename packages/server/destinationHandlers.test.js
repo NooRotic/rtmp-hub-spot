@@ -26,8 +26,10 @@ describe('registerDestinationHandlers', () => {
     registerDestinationHandlers(ipc, store);
   });
 
-  it('registers all four destination CRUD channels', () => {
+  it('registers all destination CRUD and bindings channels', () => {
     expect(Object.keys(ipc.handlers).sort()).toEqual([
+      'bindings:list',
+      'bindings:set',
       'destinations:add',
       'destinations:list',
       'destinations:remove',
@@ -55,5 +57,28 @@ describe('registerDestinationHandlers', () => {
     const dest = { id: '2', name: 'Y' };
     expect(ipc.invoke('destinations:update', dest)).toBe(true);
     expect(store.updateDestination).toHaveBeenCalledWith(dest);
+  });
+});
+
+describe('bindings handlers', () => {
+  it('wires bindings:list and bindings:set to the store', async () => {
+    const deps = {
+      loadDestinations: vi.fn(),
+      addDestination: vi.fn(),
+      removeDestination: vi.fn(),
+      updateDestination: vi.fn(),
+      loadBindings: vi.fn(() => [{ sourceKey: 'grid', destinationId: 'yt', active: true }]),
+      setBinding: vi.fn(),
+    };
+    const ipc = makeIpc();
+    registerDestinationHandlers(ipc, deps);
+
+    expect(await ipc.invoke('bindings:list')).toEqual([
+      { sourceKey: 'grid', destinationId: 'yt', active: true },
+    ]);
+    await ipc.invoke('bindings:set', { sourceKey: 'grid', destinationId: 'kick', active: true });
+    expect(deps.setBinding).toHaveBeenCalledWith({
+      sourceKey: 'grid', destinationId: 'kick', active: true,
+    });
   });
 });

@@ -26,6 +26,13 @@ function registerDestinationHandlers(ipcMain, deps = store) {
     deps.updateDestination(dest);
     return true;
   });
+
+  ipcMain.handle('bindings:list', () => deps.loadBindings());
+
+  ipcMain.handle('bindings:set', (_event, binding) => {
+    deps.setBinding(binding);
+    return true;
+  });
 }
 
 module.exports = { registerDestinationHandlers };
