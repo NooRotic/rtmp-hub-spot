@@ -45,4 +45,13 @@ describe('broadcast-orchestrator', () => {
     expect(supervisor.cancel).toHaveBeenCalledWith('grid');
     expect(relayManager.stopForSource).toHaveBeenCalledWith('grid');
   });
+
+  it('safely skips a dangling binding whose destination no longer exists', () => {
+    const { orch, enq } = make({
+      bindings: [{ sourceKey: 'grid', destinationId: 'ghost', active: true }],
+      destinations: [YT], // 'ghost' is not present
+    });
+    expect(() => orch.onSourcePublished('grid')).not.toThrow();
+    expect(enq).toHaveLength(0);
+  });
 });
