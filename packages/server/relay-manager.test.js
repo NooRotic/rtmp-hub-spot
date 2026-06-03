@@ -43,7 +43,10 @@ describe('relay-manager', () => {
   });
 
   it('emits relay-stats parsed from stderr with uptime', () => {
-    const { manager, spawned, broadcasts } = makeManager({ now: () => 5000 });
+    const times = [1000, 4000]; // now() at start() (startedAt), then at the stderr tick
+    const { manager, spawned, broadcasts } = makeManager({
+      now: () => (times.length > 1 ? times.shift() : times[0]),
+    });
     manager.start('grid', DEST);
     spawned[0].handlers.onStderr(
       'frame= 90 fps= 30 drop=2 size= 100kB time=00:00:03.00 bitrate=2500.0kbits/s speed=1.0x',
@@ -53,7 +56,7 @@ describe('relay-manager', () => {
     expect(stat.droppedFrames).toBe(2);
     expect(stat.sourceKey).toBe('grid');
     expect(stat.destinationId).toBe('d1');
-    expect(stat.uptimeSec).toBe(0); // now()-startedAt both 5000
+    expect(stat.uptimeSec).toBe(3);
   });
 
   it('classifies an auth error as fatal: error state, no transient retry', () => {
@@ -92,5 +95,17 @@ describe('relay-manager', () => {
     expect(manager.has('feed-x', 'd2')).toBe(true);
     manager.stopAll();
     expect(manager.size()).toBe(0);
+  });
+
+  it('ignores an error from a replaced proc (restart race)', () => {
+    const { manager, spawned, transient } = makeManager();
+    manager.start('grid', DEST);
+    const firstProc = spawned[0];
+    manager.start('grid', DEST); // restart same key: kills first, installs a new entry
+    // The first (dying) proc errors AFTER it was replaced:
+    firstProc.handlers.onError(new Error('Connection reset by peer'));
+    // Must be a no-op: the new relay is still tracked and no transient reconnect was queued.
+    expect(manager.has('grid', 'd1')).toBe(true);
+    expect(transient).toHaveLength(0);
   });
 });

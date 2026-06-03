@@ -3,7 +3,8 @@
 const { parseFfmpegProgress } = require('./ffmpeg-progress');
 
 // Clear config/auth failures that will NOT self-heal — surface as error, no retry.
-const FATAL = /(401|403|Unauthorized|Forbidden|Invalid stream key|no such host|Name or service not known|nonexistent stream)/i;
+// Numeric auth codes are \b-anchored so a port/streamkey substring (e.g. :4013) can't false-match.
+const FATAL = /\b(401|403)\b|Unauthorized|Forbidden|Invalid stream key|no such host|Name or service not known|nonexistent stream/i;
 
 /**
  * Keyed copy-relay engine (sibling of pipe-manager). One FFmpeg process per
@@ -65,13 +66,14 @@ function createRelayManager({
           uptimeSec: Math.floor((now() - startedAt) / 1000),
         });
       },
-      onError: (err) => handleError(key, err),
+      onError: (err) => handleError(key, entry, err),
     });
   }
 
-  function handleError(key, err) {
-    const entry = relays.get(key);
-    if (!entry) return; // double-error guard: already cleaned up
+  function handleError(key, entry, err) {
+    // Ignore errors from a proc that has already been replaced or stopped: act
+    // only if this entry is still the live one at its key (guards the restart race).
+    if (relays.get(key) !== entry) return;
     const { sourceKey, destination } = entry;
     const message = (err && err.message) || String(err);
 
