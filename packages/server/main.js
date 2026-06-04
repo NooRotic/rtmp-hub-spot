@@ -291,7 +291,11 @@ initializeServer().then(({ nms, server, io }) => {
     const streamKey = safePath.split('/').pop() || safePath;
     console.log(`[RTMP] Publisher connected: ${streamKey} from ${data.ip}`);
     rtmpPublishers.set(streamKey, { ip: data.ip, path: safePath, startTime: Date.now() });
-    broadcastOrchestrator.onSourcePublished(streamKey);
+    try {
+      broadcastOrchestrator.onSourcePublished(streamKey);
+    } catch (err) {
+      console.error('[RELAY] onSourcePublished failed for', streamKey, err && err.message);
+    }
     broadcastStatus();
   });
 
@@ -301,7 +305,11 @@ initializeServer().then(({ nms, server, io }) => {
     const streamKey = safePath.split('/').pop() || safePath;
     console.log(`[RTMP] Publisher disconnected: ${streamKey}`);
     rtmpPublishers.delete(streamKey);
-    broadcastOrchestrator.onSourceUnpublished(streamKey);
+    try {
+      broadcastOrchestrator.onSourceUnpublished(streamKey);
+    } catch (err) {
+      console.error('[RELAY] onSourceUnpublished failed for', streamKey, err && err.message);
+    }
     // Also stop any active recording for this stream
     const rec = recordingSessions.get(streamKey);
     if (rec) {
@@ -506,6 +514,7 @@ const pipeManager = createPipeManager({
  * Thin fluent-ffmpeg glue for a copy relay: pull from local NMS, copy to the
  * platform. Kept out of relay-manager.js so that module stays process-free and
  * unit-testable; this glue is covered by the live smoke test.
+ * @returns {object} the running fluent-ffmpeg command (exposes .kill()).
  */
 function spawnRelay(args, { onStart, onStderr, onError }) {
   return ffmpeg(args.inputUrl)
@@ -520,7 +529,7 @@ function spawnRelay(args, { onStart, onStderr, onError }) {
 
 // Relay fan-out (Multi-Stream Pro): one copy-relay per destination, scheduled
 // through a single supervisor so reconnects after a network drop are staggered.
-let reconnectionSupervisor; // declared first for the relay-manager callbacks
+let reconnectionSupervisor; // forward-declared: the relay-manager arrow callbacks close over this binding and only read it at runtime (after it is assigned below).
 const relayManager = createRelayManager({
   spawnRelay,
   buildRelayArgs,
