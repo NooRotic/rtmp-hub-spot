@@ -7,20 +7,28 @@ import ChatBox from './components/ChatBox';
 import Lobby from './components/Lobby';
 import mpegts from 'mpegts.js';
 
+// The admin renderer is always co-located with NMS, which binds 0.0.0.0:8000 by
+// default — so it plays its OWN local NMS back over LOOPBACK. Using serverStatus.local
+// (the LAN IP) here was wrong: it's CSP-blocked (connect-src only allows loopback
+// http) and pointless. The LAN address is for SHARING routes to other devices — a
+// separate concern. 127.0.0.1 (not "localhost") matches NMS's IPv4 0.0.0.0 bind exactly.
+const localFlvUrl = (streamKey: string) => `http://127.0.0.1:8000/live/${streamKey}.flv`;
+
 /**
  * Inline RTMP preview player using mpegts.js for a single publisher stream.
- * Self-contained: attaches/destroys its own mpegts instance.
+ * Self-contained: attaches/destroys its own mpegts instance. Always plays the
+ * local NMS over loopback (see localFlvUrl).
  */
-const RtmpPlayerTile = ({ streamKey, host }: { streamKey: string; host: string }) => {
+export const RtmpPlayerTile = ({ streamKey }: { streamKey: string }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   useEffect(() => {
     if (!videoRef.current || !mpegts.getFeatureList().mseLivePlayback) return;
-    const player = mpegts.createPlayer({ type: 'flv', isLive: true, url: `http://${host}:8000/live/${streamKey}.flv` });
+    const player = mpegts.createPlayer({ type: 'flv', isLive: true, url: localFlvUrl(streamKey) });
     player.attachMediaElement(videoRef.current);
     player.load();
     void (player.play() as unknown as Promise<void>)?.catch(() => {});
     return () => { try { player.destroy(); } catch (_) {} };
-  }, [streamKey, host]);
+  }, [streamKey]);
   return <video ref={videoRef} autoPlay muted playsInline style={{ width: '100%', maxHeight: '120px', background: '#000', display: 'block', marginTop: '4px' }} />;
 };
 
@@ -332,14 +340,11 @@ function App() {
       video.playsInline = true;
       video.autoplay = true;
 
-      // Extract NMS host cleanly
-      const host = serverStatus?.local || 'localhost';
-      
       if (mpegts.getFeatureList().mseLivePlayback) {
         const player = mpegts.createPlayer({
           type: 'flv',
           isLive: true,
-          url: `http://${host}:8000/live/${feed.streamKey}.flv`
+          url: localFlvUrl(feed.streamKey) // local NMS over loopback (see localFlvUrl)
         });
         player.attachMediaElement(video);
         player.load();
@@ -779,7 +784,7 @@ function App() {
                             </div>
                           </div>
                           {isPreviewing && (
-                            <RtmpPlayerTile streamKey={pub.streamKey} host={serverStatus?.local || 'localhost'} />
+                            <RtmpPlayerTile streamKey={pub.streamKey} />
                           )}
                         </div>
                       );

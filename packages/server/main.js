@@ -81,7 +81,11 @@ function applyContentSecurityPolicy() {
     "img-src 'self' data: blob:; " +
     "media-src 'self' blob:; " +
     "font-src 'self' data:; " +
-    "connect-src 'self' https://localhost:* wss://localhost:* ws://localhost:*;";
+    // http://127.0.0.1:* + http://localhost:* allow the in-app mpegts preview to
+    // fetch the local NMS HTTP-FLV egress (port 8000, plain http). Scoped to LOOPBACK
+    // only — never the LAN IP or a wildcard host — so it stays unreachable off-box.
+    "connect-src 'self' https://localhost:* wss://localhost:* ws://localhost:* " +
+    "http://127.0.0.1:* http://localhost:*;";
   const scriptSrc = app.isPackaged
     ? "script-src 'self' 'unsafe-inline'; "                  // prod: inline polyfill ok, no eval
     : "script-src 'self' 'unsafe-inline' 'unsafe-eval'; ";   // dev: Vite HMR needs eval
