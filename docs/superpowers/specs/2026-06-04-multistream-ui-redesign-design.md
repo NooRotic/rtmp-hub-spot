@@ -125,7 +125,7 @@ The UI's core flow needs three server gaps closed. Today `bindings:set` only per
 
 The MVP renders Pro controls **visible but disabled** with an upsell — they reserve the data model and advertise the upgrade; they do nothing until the Pro transcode milestone.
 
-- **Free brand watermark (option C):** a small removable "RTMP Hub" mark. Cheapest place is the **grid/source encode** (extends the existing canvas burn-in); on by default for Free. Caveat: a canvas-level mark also shows on local preview/recordings — acceptable for MVP; per-destination marks are Pro.
+- **Free brand watermark (option C):** a small removable "RTMP Hub" mark. **R2 RESOLVED (2026-06-04): mark OUTBOUND ONLY** (must not bleed onto local preview/recordings). Because relays are `-c copy` (no re-encode), an overlay can only live on a re-encode path — the same decode→overlay→re-encode the Pro transcode milestone must build. **Therefore the actual render is deferred to the Pro transcode milestone**; this MVP only *reserves* `WatermarkConfig` in the shared types and ships the Free-watermark toggle **visible-but-locked** like the other Pro controls. No canvas burn-in now (avoids the preview/recording bleed). If a rendering Free mark is wanted sooner, the clean alternative is a **dual source-encode** (clean `live/{key}` for preview/recording + watermarked `live/{key}-wm` for relays to `-c copy`) — one extra source encode total, relays stay cheap; not built in this phase.
 - **Pro (locked now, built later):** per-destination **custom watermark/logo** + per-destination **encode** (bitrate/resolution/fps). Both require decode→overlay→re-encode, impossible under Free's `-c copy` — which is *why* they're Pro.
 - **Data model additions** (reserve now in `packages/shared/index.ts`): `WatermarkConfig { logoPath?/text?, position, opacity? }`; `EncodeOverride.watermark?: WatermarkConfig`; a Free-brand-watermark removal flag in app settings (Pro-gated).
 
@@ -153,6 +153,6 @@ The MVP renders Pro controls **visible but disabled** with an upsell — they re
 ## 13. Risks / open questions
 
 - **R1 — RTMPS verify:** confirm the bundled FFmpeg accepts `rtmps://` outputs (needed for Facebook). Low risk; standard TLS FFmpeg build.
-- **R2 — Free watermark surface:** option C's canvas-level mark also marks preview/recordings. Confirm acceptable, or accept a small per-output cost to mark only outbound.
+- **R2 — Free watermark surface:** ✅ RESOLVED — mark **outbound only**; render deferred to the Pro transcode milestone (overlay needs re-encode, impossible under relay `-c copy`). MVP reserves the model + ships a locked toggle. See §9.
 - **R3 — `isSourceLive` source of truth:** G1 needs a reliable "is this streamKey publishing now" predicate; bind it to the same NMS publisher tracking `server-status` uses to avoid a second source of truth.
-- **R4 — Scope size:** this is both a feature (restream UI) and a refactor (god-component decomposition). The plan should sequence so the app stays runnable at each step (extract hooks behind current UI first, then re-skin), not a big-bang rewrite.
+- **R4 — Scope size:** ✅ RESOLVED — sequence = **backend G1–G3 + hook extraction behind the current UI first** (app stays runnable/testable at each step), *then* the dark-NT re-skin. Not a big-bang rewrite.
