@@ -222,11 +222,15 @@ async function initializeServer() {
   return { nms, server, io };
 }
 
+// Active RTMP publishers (streamKey -> { ip, path, startTime }). Declared at module
+// scope so both the NMS publish handlers (inside initializeServer) and isSourceLive
+// (used by the relay orchestrator below) share one source of truth.
+const rtmpPublishers = new Map();
+
 console.log('[SERVER] Starting initialization...');
 initializeServer().then(({ nms, server, io }) => {
   console.log('[SERVER] Initialization successful, attaching listeners...');
   const rtmpSessions = new Map();   // id -> { ip, path, startTime }  — RTMP players
-  const rtmpPublishers = new Map(); // streamKey -> { ip, path, startTime } — active publishers
 
   // Resolve session data via the version-robust, unit-tested helper (nms-session.js).
   // NMS v4 emits the session object with the path on `streamPath`; reading the old
