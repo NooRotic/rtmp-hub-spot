@@ -7,6 +7,7 @@ const { createRelayManager } = require('./relay-manager');
 const { createReconnectionSupervisor } = require('./reconnection-supervisor');
 const { createBroadcastOrchestrator } = require('./broadcast-orchestrator');
 const destinationStore = require('./destinationStore');
+const { extractSessionData } = require('./nms-session');
 const path = require('path');
 const os = require('os');
 const https = require('https');
@@ -227,40 +228,10 @@ initializeServer().then(({ nms, server, io }) => {
   const rtmpSessions = new Map();   // id -> { ip, path, startTime }  — RTMP players
   const rtmpPublishers = new Map(); // streamKey -> { ip, path, startTime } — active publishers
 
-  // Helper to extract session data safely
-  const getSessionData = (sessionOrId) => {
-    let session = null;
-    
-    if (typeof sessionOrId === 'object' && sessionOrId !== null) {
-      session = sessionOrId;
-    } else if (nms.sessions) {
-      // nms.sessions can be a Map or an Object depending on version
-      if (typeof nms.sessions.get === 'function') {
-        session = nms.sessions.get(sessionOrId);
-      } else {
-        session = nms.sessions[sessionOrId];
-      }
-    }
-
-    if (session) {
-      const uptime = Math.floor((Date.now() - (session.startTime || 0)) / 1000);
-      const bytesRead = session.socket?.bytesRead || 0;
-      const bytesWritten = session.socket?.bytesWritten || 0;
-      
-      return {
-        id: session.id || sessionOrId,
-        ip: session.ip || 'Unknown',
-        path: session.playStreamPath || session.publishStreamPath || 'Unknown',
-        startTime: session.startTime,
-        uptime: uptime > 100000 ? 0 : uptime, // Sanity check for start time
-        bytes: bytesWritten || bytesRead,
-        bitrate: session.bitrate || 0,
-        protocol: session.protocol || 'rtmp'
-      };
-    }
-
-    return { id: sessionOrId, ip: 'Unknown', path: 'Unknown', uptime: 0, bitrate: 0 };
-  };
+  // Resolve session data via the version-robust, unit-tested helper (nms-session.js).
+  // NMS v4 emits the session object with the path on `streamPath`; reading the old
+  // v2 names yielded 'Unknown' and mis-keyed the relay fan-out. See nms-session.test.js.
+  const getSessionData = (sessionOrId) => extractSessionData(sessionOrId, nms.sessions);
 
   nms.on('postPlay', (id, StreamPath, args) => {
     const data = getSessionData(id);

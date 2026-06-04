@@ -52,6 +52,7 @@
       "relay-manager.js",
       "reconnection-supervisor.js",
       "broadcast-orchestrator.js",
+      "nms-session.js",
       "package.json",
       "assets/**/*",
       "../client/dist/**/*"
