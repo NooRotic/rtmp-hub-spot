@@ -111,6 +111,12 @@ function createRelayManager({
     }
   }
 
+  function stopForDestination(destinationId) {
+    for (const entry of [...relays.values()]) {
+      if (entry.destination.id === destinationId) stop(entry.sourceKey, destinationId);
+    }
+  }
+
   function stopAll() {
     for (const entry of [...relays.values()]) stop(entry.sourceKey, entry.destination.id);
   }
@@ -119,6 +125,7 @@ function createRelayManager({
     start,
     stop,
     stopForSource,
+    stopForDestination,
     stopAll,
     has: (s, d) => relays.has(keyOf(s, d)),
     size: () => relays.size,

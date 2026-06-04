@@ -108,4 +108,31 @@ describe('relay-manager', () => {
     expect(manager.has('grid', 'd1')).toBe(true);
     expect(transient).toHaveLength(0);
   });
+
+  it('stopForDestination stops every relay for that destination across sources', () => {
+    const { manager, spawned, broadcasts } = makeManager();
+    const A = { id: 'd1', url: 'rtmp://x/live2', streamKey: 'k1' };
+    const B = { id: 'd2', url: 'rtmp://y/live2', streamKey: 'k2' };
+    manager.start('grid', A);
+    manager.start('feed-cam', A); // same destination, different source
+    manager.start('grid', B);     // different destination — must survive
+    expect(manager.size()).toBe(3);
+
+    manager.stopForDestination('d1');
+
+    expect(manager.has('grid', 'd1')).toBe(false);
+    expect(manager.has('feed-cam', 'd1')).toBe(false);
+    expect(manager.has('grid', 'd2')).toBe(true);
+    expect(manager.size()).toBe(1);
+    // each stopped relay broadcasts a 'stopped' status
+    const stopped = broadcasts.filter(
+      (b) => b.channel === 'relay-status' && b.data.state === 'stopped',
+    );
+    expect(stopped.map((b) => `${b.data.sourceKey}:${b.data.destinationId}`).sort()).toEqual([
+      'feed-cam:d1',
+      'grid:d1',
+    ]);
+    // the survivor's process was never killed
+    expect(spawned.find((s) => s.args.outputUrl.includes('k2')).proc.kill).not.toHaveBeenCalled();
+  });
 });
