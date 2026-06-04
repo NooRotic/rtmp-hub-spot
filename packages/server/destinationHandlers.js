@@ -44,7 +44,16 @@ function registerDestinationHandlers(ipcMain, { store = defaultStore, orchestrat
     store.setBinding(binding);
     if (binding.active) {
       const dest = store.loadDestinations().find((d) => d.id === binding.destinationId);
-      if (dest) orchestrator.onBindingAdded(binding.sourceKey, dest);
+      if (dest) {
+        orchestrator.onBindingAdded(binding.sourceKey, dest);
+      } else {
+        // Stale binding: destination was removed after this binding was stored. Skip
+        // the relay start (the binding gets cleaned up when destinations:remove cascades).
+        console.warn(
+          '[destinationHandlers] bindings:set: no destination for id',
+          binding.destinationId,
+        );
+      }
     } else {
       orchestrator.onBindingRemoved(binding.sourceKey, binding.destinationId);
     }

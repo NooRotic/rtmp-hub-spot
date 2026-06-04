@@ -89,6 +89,15 @@ describe('bindings:set routing (G1/G2)', () => {
     expect(orchestrator.onBindingRemoved).toHaveBeenCalledWith('grid', 'yt');
     expect(orchestrator.onBindingAdded).not.toHaveBeenCalled();
   });
+
+  it('skips both orchestrator paths when an active binding references a missing destination', () => {
+    const { ipc, store, orchestrator } = setup({ destinations: [] }); // YT not present
+    const binding = { sourceKey: 'grid', destinationId: 'yt', active: true };
+    expect(ipc.invoke('bindings:set', binding)).toBe(true);
+    expect(store.setBinding).toHaveBeenCalledWith(binding); // still persisted
+    expect(orchestrator.onBindingAdded).not.toHaveBeenCalled();
+    expect(orchestrator.onBindingRemoved).not.toHaveBeenCalled();
+  });
 });
 
 describe('bindings:remove routing (G2)', () => {
