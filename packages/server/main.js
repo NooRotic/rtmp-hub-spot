@@ -512,11 +512,16 @@ const relayManager = createRelayManager({
 reconnectionSupervisor = createReconnectionSupervisor({
   startRelay: (item) => relayManager.start(item.sourceKey, item.destination),
 });
+// A source is "live" iff NMS currently has a publisher on its streamKey. Reuse the
+// same map server-status is derived from — single source of truth (spec R3).
+const isSourceLive = (streamKey) => rtmpPublishers.has(streamKey);
+
 const broadcastOrchestrator = createBroadcastOrchestrator({
   supervisor: reconnectionSupervisor,
   relayManager,
   listBindings: () => destinationStore.loadBindings(),
   listDestinations: () => destinationStore.loadDestinations(),
+  isSourceLive,
 });
 
 ipcMain.on('ffmpeg-pipe-start', (event, config = {}) => {
@@ -710,7 +715,10 @@ ipcMain.on('window-close', () => {
 
 // RTMP destination CRUD (Multi-Stream Pro) — encrypted via safeStorage
 const { registerDestinationHandlers } = require('./destinationHandlers');
-registerDestinationHandlers(ipcMain);
+registerDestinationHandlers(ipcMain, {
+  store: destinationStore,
+  orchestrator: broadcastOrchestrator,
+});
 
 app.whenReady().then(createWindow);
 
