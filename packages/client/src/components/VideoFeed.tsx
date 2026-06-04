@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { feedKey } from '../utils/streamKey';
 
 // For the Electron Admin environment
 const isElectron = navigator.userAgent.toLowerCase().indexOf(' electron/') > -1;
@@ -68,7 +69,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
       ipc.send('ffmpeg-pipe-stop');
       setIsPiping(false);
     } else {
-      const streamKey = `feed-${label.replace(/\s+/g, '-').toLowerCase()}`;
+      const streamKey = feedKey(label);
       const mimeType = MediaRecorder.isTypeSupported('video/webm; codecs=vp8')
         ? 'video/webm; codecs=vp8'
         : 'video/webm';
@@ -154,7 +155,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
             position: 'absolute', top: 5, left: 5, right: 5, zIndex: 10,
             backgroundColor: 'rgba(0,0,0,0.7)', color: '#0f0', fontSize: '8px', padding: '2px'
           }}>
-            RTMP: rtmp://{rtmpHost}/live/feed-{label.replace(/\s+/g, '-').toLowerCase()}
+            RTMP: rtmp://{rtmpHost}/live/{feedKey(label)}
           </div>
         )}
         <video

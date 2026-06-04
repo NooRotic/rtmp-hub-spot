@@ -2,6 +2,12 @@ const { app, BrowserWindow, ipcMain, shell, session } = require('electron');
 const { isLoopbackHost } = require('./cert-trust');
 const { buildFfmpegArgs } = require('./ffmpeg-args');
 const { createPipeManager } = require('./pipe-manager');
+const { buildRelayArgs } = require('./relay-args');
+const { createRelayManager } = require('./relay-manager');
+const { createReconnectionSupervisor } = require('./reconnection-supervisor');
+const { createBroadcastOrchestrator } = require('./broadcast-orchestrator');
+const destinationStore = require('./destinationStore');
+const { extractSessionData } = require('./nms-session');
 const path = require('path');
 const os = require('os');
 const https = require('https');
@@ -222,40 +228,10 @@ initializeServer().then(({ nms, server, io }) => {
   const rtmpSessions = new Map();   // id -> { ip, path, startTime }  — RTMP players
   const rtmpPublishers = new Map(); // streamKey -> { ip, path, startTime } — active publishers
 
-  // Helper to extract session data safely
-  const getSessionData = (sessionOrId) => {
-    let session = null;
-    
-    if (typeof sessionOrId === 'object' && sessionOrId !== null) {
-      session = sessionOrId;
-    } else if (nms.sessions) {
-      // nms.sessions can be a Map or an Object depending on version
-      if (typeof nms.sessions.get === 'function') {
-        session = nms.sessions.get(sessionOrId);
-      } else {
-        session = nms.sessions[sessionOrId];
-      }
-    }
-
-    if (session) {
-      const uptime = Math.floor((Date.now() - (session.startTime || 0)) / 1000);
-      const bytesRead = session.socket?.bytesRead || 0;
-      const bytesWritten = session.socket?.bytesWritten || 0;
-      
-      return {
-        id: session.id || sessionOrId,
-        ip: session.ip || 'Unknown',
-        path: session.playStreamPath || session.publishStreamPath || 'Unknown',
-        startTime: session.startTime,
-        uptime: uptime > 100000 ? 0 : uptime, // Sanity check for start time
-        bytes: bytesWritten || bytesRead,
-        bitrate: session.bitrate || 0,
-        protocol: session.protocol || 'rtmp'
-      };
-    }
-
-    return { id: sessionOrId, ip: 'Unknown', path: 'Unknown', uptime: 0, bitrate: 0 };
-  };
+  // Resolve session data via the version-robust, unit-tested helper (nms-session.js).
+  // NMS v4 emits the session object with the path on `streamPath`; reading the old
+  // v2 names yielded 'Unknown' and mis-keyed the relay fan-out. See nms-session.test.js.
+  const getSessionData = (sessionOrId) => extractSessionData(sessionOrId, nms.sessions);
 
   nms.on('postPlay', (id, StreamPath, args) => {
     const data = getSessionData(id);
@@ -286,6 +262,11 @@ initializeServer().then(({ nms, server, io }) => {
     const streamKey = safePath.split('/').pop() || safePath;
     console.log(`[RTMP] Publisher connected: ${streamKey} from ${data.ip}`);
     rtmpPublishers.set(streamKey, { ip: data.ip, path: safePath, startTime: Date.now() });
+    try {
+      broadcastOrchestrator.onSourcePublished(streamKey);
+    } catch (err) {
+      console.error('[RELAY] onSourcePublished failed for', streamKey, (err && err.message) || err);
+    }
     broadcastStatus();
   });
 
@@ -295,6 +276,11 @@ initializeServer().then(({ nms, server, io }) => {
     const streamKey = safePath.split('/').pop() || safePath;
     console.log(`[RTMP] Publisher disconnected: ${streamKey}`);
     rtmpPublishers.delete(streamKey);
+    try {
+      broadcastOrchestrator.onSourceUnpublished(streamKey);
+    } catch (err) {
+      console.error('[RELAY] onSourceUnpublished failed for', streamKey, (err && err.message) || err);
+    }
     // Also stop any active recording for this stream
     const rec = recordingSessions.get(streamKey);
     if (rec) {
@@ -447,6 +433,7 @@ initializeServer().then(({ nms, server, io }) => {
   // Cleanup on app quit
   app.on('before-quit', () => {
     pipeManager.stopAll(); // kill any running FFmpeg pipes so no ffmpeg.exe orphans on quit
+    relayManager.stopAll(); // stop all relay fan-out processes
     clearInterval(statusInterval);
     if (server) server.close();
     if (nms) nms.stop();
@@ -493,6 +480,45 @@ const pipeManager = createPipeManager({
   broadcastIPC,
   rtmpPort: RTMP_PORT,
 });
+
+/**
+ * Thin fluent-ffmpeg glue for a copy relay: pull from local NMS, copy to the
+ * platform. Kept out of relay-manager.js so that module stays process-free and
+ * unit-testable; this glue is covered by the live smoke test.
+ * @returns {object} the running fluent-ffmpeg command (exposes .kill()).
+ */
+function spawnRelay(args, { onStart, onStderr, onError }) {
+  return ffmpeg(args.inputUrl)
+    .inputOptions(args.inputOptions)
+    .outputOptions(args.outputOptions)
+    .output(args.outputUrl)
+    .on('start', onStart)
+    .on('stderr', onStderr)
+    .on('error', onError)
+    .run();
+}
+
+// Relay fan-out (Multi-Stream Pro): one copy-relay per destination, scheduled
+// through a single supervisor so reconnects after a network drop are staggered.
+let reconnectionSupervisor; // forward-declared: the relay-manager arrow callbacks close over this binding and only read it at runtime (after it is assigned below).
+const relayManager = createRelayManager({
+  spawnRelay,
+  buildRelayArgs,
+  broadcastIPC,
+  rtmpPort: RTMP_PORT,
+  onLive: (sourceKey, destinationId) => reconnectionSupervisor.notifyLive(sourceKey, destinationId),
+  onTransientFailure: (item) => reconnectionSupervisor.enqueue(item),
+});
+reconnectionSupervisor = createReconnectionSupervisor({
+  startRelay: (item) => relayManager.start(item.sourceKey, item.destination),
+});
+const broadcastOrchestrator = createBroadcastOrchestrator({
+  supervisor: reconnectionSupervisor,
+  relayManager,
+  listBindings: () => destinationStore.loadBindings(),
+  listDestinations: () => destinationStore.loadDestinations(),
+});
+
 ipcMain.on('ffmpeg-pipe-start', (event, config = {}) => {
   // streamKey identifies the pipe; other fields default inside buildFfmpegArgs.
   pipeManager.start({ streamKey: 'grid', ...config }, { sender: event.sender });
@@ -681,6 +707,10 @@ ipcMain.on('window-minimize', () => {
 ipcMain.on('window-close', () => {
   app.quit();
 });
+
+// RTMP destination CRUD (Multi-Stream Pro) — encrypted via safeStorage
+const { registerDestinationHandlers } = require('./destinationHandlers');
+registerDestinationHandlers(ipcMain);
 
 app.whenReady().then(createWindow);
 

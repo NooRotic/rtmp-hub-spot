@@ -1,5 +1,7 @@
 'use strict';
 
+const { parseFfmpegProgress } = require('./ffmpeg-progress');
+
 /**
  * Multi-pipe FFmpeg engine (audit #1). Replaces the three module-level singletons
  * (pipeFfmpeg / videoStream / activeStreamKey) with a Map keyed by streamKey, so
@@ -22,17 +24,15 @@ function createPipeManager({ spawnPipe, PassThrough, buildFfmpegArgs, broadcastI
   const pipes = new Map();
 
   function parseStats(line, streamKey) {
-    const m = line.match(
-      /frame=\s*(\d+)\s+fps=\s*([\d.]+).*?size=\s*([\d.]+\s*\w+).*?time=([\d:.]+).*?bitrate=\s*([\d.]+\s*\S+).*?speed=\s*([\d.]+)x/,
-    );
-    if (!m) return null;
+    const p = parseFfmpegProgress(line);
+    if (!p) return null;
     return {
-      frame: parseInt(m[1], 10),
-      fps: parseFloat(m[2]),
-      size: m[3].trim(),
-      time: m[4],
-      bitrate: m[5].trim(),
-      speed: parseFloat(m[6]),
+      frame: p.frame,
+      fps: p.fps,
+      size: p.size,
+      time: p.time,
+      bitrate: p.bitrate,
+      speed: p.speed,
       streamKey,
     };
   }
