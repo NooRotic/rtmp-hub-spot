@@ -14,7 +14,9 @@
  * @param {{stopForSource:Function, stop:Function, stopForDestination:Function}} deps.relayManager
  * @param {() => Array} deps.listBindings
  * @param {() => Array} deps.listDestinations
- * @param {(sourceKey:string) => boolean} [deps.isSourceLive] - is this streamKey publishing now?
+ * @param {(sourceKey:string) => boolean} [deps.isSourceLive] - is this streamKey publishing
+ *   now? Pass a real predicate in production (e.g. rtmpPublishers.has); the default `() => false`
+ *   DISABLES live-add (onBindingAdded never enqueues) — safe-fail, never a spurious relay.
  */
 function createBroadcastOrchestrator({
   supervisor,

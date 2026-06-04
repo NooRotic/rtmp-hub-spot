@@ -74,6 +74,12 @@ describe('broadcast-orchestrator', () => {
     expect(enq).toHaveLength(0);
   });
 
+  it('onBindingAdded safely ignores a null destination even if the source is live', () => {
+    const { orch, enq } = make({ liveSources: ['grid'] });
+    expect(() => orch.onBindingAdded('grid', null)).not.toThrow();
+    expect(enq).toHaveLength(0);
+  });
+
   it('onBindingRemoved cancels the pending reconnect and stops the running relay', () => {
     const { orch, supervisor, relayManager } = make();
     orch.onBindingRemoved('grid', 'yt');
