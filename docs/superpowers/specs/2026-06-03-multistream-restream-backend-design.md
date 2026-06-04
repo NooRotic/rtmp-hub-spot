@@ -105,7 +105,8 @@ interface RelayStatus {
   destinationId: string;
   state: RelayState;
   message?: string;
-  restartCount?: number;
+  // NOTE: no restartCount — per-destination reconnect count intentionally omitted;
+  // see note below interface.
 }
 
 // Pushed per relay (Level-3 analog of ffmpeg-stats)
@@ -124,6 +125,8 @@ interface RelayStats {
 ```
 
 > The UI is a pure function of these types: **Server header → each Source card → that source's Destination rows** (health LED = `RelayState`, stat strip = `RelayStats`). `speed < 1.0` and `droppedFrames` are first-class because they are what actually tell a streamer a platform is in trouble.
+
+> **Contract note — `RelayStatus.restartCount` omitted intentionally:** per-destination reconnect count is not in the contract because backoff is tracked globally by the reconnection supervisor (one shared uplink queue), not per relay. A per-destination attempt count is a future enhancement (would require per-relay tracking in the supervisor).
 
 ## 5. Data model & persistence
 
@@ -159,6 +162,8 @@ A relay differs structurally from a source pipe: a source pipe is **push-fed** W
 ## 6.1 Reconnection supervision (`reconnection-supervisor.js`)
 
 **Scope note:** source pipes push to loopback and are **unaffected** by a WiFi/network drop; only **relays' outbound push** fails. So during an outage, sources stay green and only relays reconnect.
+
+**`relay-status: 'live'` semantics:** emitted when the ffmpeg process starts, not when the platform accepts the RTMP handshake (same semantics as pipe-manager). A rejected platform transitions `live → error`.
 
 **Problem:** a network drop hits every relay at the same instant → synchronized backoff (permanent herd), and the instant the uplink returns N simultaneous RTMP+TLS handshakes slam a congested link (shared with every other app reconnecting), causing failures → more retries.
 

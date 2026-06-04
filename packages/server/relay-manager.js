@@ -46,6 +46,9 @@ function createRelayManager({
     relays.set(key, entry);
 
     entry.proc = spawnRelay(args, {
+      // NOTE: 'start' fires when the ffmpeg process starts, not when the platform
+      // has accepted the RTMP handshake — so 'live' means "relay process running"
+      // (same semantics as pipe-manager). A rejected platform goes live -> error.
       onStart: () => {
         broadcastIPC('relay-status', { sourceKey, destinationId: destination.id, state: 'live' });
         onLive(sourceKey, destination.id);

@@ -54,13 +54,17 @@ export type RelayState =
   | 'error'
   | 'stopped';
 
-/** Pushed per relay over IPC channel 'relay-status'. */
+/**
+ * Pushed per relay over IPC channel 'relay-status'.
+ * NOTE: no per-destination reconnect count — backoff is tracked globally by the
+ * reconnection supervisor (one shared uplink), not per relay. A per-destination
+ * attempt count is a possible future enhancement (would require per-relay tracking).
+ */
 export interface RelayStatus {
   sourceKey: string;
   destinationId: string;
   state: RelayState;
   message?: string;
-  restartCount?: number;
 }
 
 /** Pushed per relay over IPC channel 'relay-stats'. */

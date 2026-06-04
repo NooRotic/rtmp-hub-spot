@@ -294,7 +294,7 @@ initializeServer().then(({ nms, server, io }) => {
     try {
       broadcastOrchestrator.onSourcePublished(streamKey);
     } catch (err) {
-      console.error('[RELAY] onSourcePublished failed for', streamKey, err && err.message);
+      console.error('[RELAY] onSourcePublished failed for', streamKey, (err && err.message) || err);
     }
     broadcastStatus();
   });
@@ -308,7 +308,7 @@ initializeServer().then(({ nms, server, io }) => {
     try {
       broadcastOrchestrator.onSourceUnpublished(streamKey);
     } catch (err) {
-      console.error('[RELAY] onSourceUnpublished failed for', streamKey, err && err.message);
+      console.error('[RELAY] onSourceUnpublished failed for', streamKey, (err && err.message) || err);
     }
     // Also stop any active recording for this stream
     const rec = recordingSessions.get(streamKey);
