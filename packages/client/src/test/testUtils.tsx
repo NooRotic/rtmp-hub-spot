@@ -64,18 +64,24 @@ function HookProbe<T>({ hookFn, store }: { hookFn: () => T; store: { current: T 
  * effects, wrap the trigger in `await act(async () => {})` in the test. `rerender()`
  * preserves hook state (same instance). The root is also registered with the module
  * `mountedRoots` registry, so `cleanup()` releases it even if a test omits `unmount()`.
+ *
+ * NOTE: `rerender()` does NOT wrap in act() — callers must wrap in their own
+ * `act(() => rerender())` or `await act(async () => { rerender(); })`. This avoids
+ * nested-act issues where `act(() => act(() => {...}))` causes the inner work to be
+ * treated as async and never flushed by the outer synchronous act call.
  */
 export function renderHook<T>(hook: () => T): RenderHookResult<T> {
   const result = { current: undefined as unknown as T };
   const el = document.createElement('div');
   document.body.appendChild(el);
   const root = createRoot(el);
-  const draw = () => act(() => { root.render(<HookProbe hookFn={hook} store={result} />); });
-  draw();
+  const render = () => root.render(<HookProbe hookFn={hook} store={result} />);
+  // Initial render flushed inside act() so effects run before returning.
+  act(() => { render(); });
   mountedRoots.push({ root, el });
   return {
     result,
-    rerender: draw,
+    rerender: render,
     unmount: () => { act(() => root.unmount()); el.remove(); },
   };
 }

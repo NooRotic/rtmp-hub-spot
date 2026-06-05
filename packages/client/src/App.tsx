@@ -3,6 +3,7 @@ import { useWebRTC } from './hooks/useWebRTC';
 import { useMediaDevices } from './hooks/useMediaDevices';
 import { useElectronBridge } from './hooks/useElectronBridge';
 import { useFfmpegPipeline } from './hooks/useFfmpegPipeline';
+import { useRecordings } from './hooks/useRecordings';
 import VideoFeed from './components/VideoFeed';
 import GridView from './components/GridView';
 import ChatBox from './components/ChatBox';
@@ -140,9 +141,6 @@ function App() {
   const [hwAccel, setHwAccel] = useState<string>('none');
   const [detectedEncoder, setDetectedEncoder] = useState<{ best: string; bestLabel: string; available: string[] } | null>(null);
   
-  // Recording
-  const [activeRecordings, setActiveRecordings] = useState<{ streamKey: string; path: string; startTime: number }[]>([]);
-  const [recNow, setRecNow] = useState(Date.now());
 
   const { status: ffmpegStatus, stats: ffmpegStats } = useFfmpegPipeline(ipc);
 
@@ -173,6 +171,8 @@ function App() {
     captureVideo: isElectron ? adminCamActive : localCameraActive,
     overrideStream: isGridShared ? gridStream : null
   });
+
+  const { activeRecordings, recNow, startRecording, stopRecording, openRecordingsDir } = useRecordings(ipc, recordingStopped);
 
   const handleConnect = () => {
     if (!userName.trim()) {
@@ -245,42 +245,8 @@ function App() {
       });
   }, [isElectron, ipc]);
 
-  // Tick every second while recordings are active (for elapsed time display)
-  useEffect(() => {
-    if (activeRecordings.length === 0) return;
-    const t = setInterval(() => setRecNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, [activeRecordings.length]);
 
-  // Recording helpers
-  const startRecording = async (streamKey: string) => {
-    if (!ipc) return;
-    try {
-      const result = await ipc.invoke('start-recording', { streamKey });
-      if (result.success) {
-        setActiveRecordings(prev => [...prev, { streamKey, path: result.path, startTime: Date.now() }]);
-      } else {
-        console.error('[REC] Start failed:', result.error);
-      }
-    } catch (e) { console.error('[REC] IPC error:', e); }
-  };
 
-  const stopRecording = (streamKey: string) => {
-    if (!ipc) return;
-    ipc.send('stop-recording', { streamKey });
-    setActiveRecordings(prev => prev.filter(r => r.streamKey !== streamKey));
-  };
-
-  const openRecordingsDir = () => {
-    if (!ipc) return;
-    ipc.send('open-recordings-dir');
-  };
-
-  // Sync recording state when the server auto-stops a recording (publisher disconnect, etc.)
-  useEffect(() => {
-    if (!recordingStopped) return;
-    setActiveRecordings(prev => prev.filter(r => r.streamKey !== recordingStopped.streamKey));
-  }, [recordingStopped]);
 
   /**
    * RTMP Synthetic Feed Effect
