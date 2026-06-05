@@ -29,7 +29,11 @@ describe('useBroadcastSettings', () => {
   it('persists a changed setting to localStorage', () => {
     const { result, unmount } = renderHook(() => useBroadcastSettings(null));
     act(() => result.current.setBitrate('8000k'));
+    act(() => result.current.setPreset('veryfast'));
+    act(() => result.current.setHwAccel('nvenc'));
     expect(localStorage.getItem('hub-broadcast-bitrate')).toBe('8000k');
+    expect(localStorage.getItem('hub-broadcast-preset')).toBe('veryfast');
+    expect(localStorage.getItem('hub-hwaccel')).toBe('nvenc');
     unmount();
   });
 

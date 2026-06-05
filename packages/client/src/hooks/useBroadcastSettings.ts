@@ -45,7 +45,7 @@ export function useBroadcastSettings(ipc: IpcBridge | null): {
         setDetectedEncoder(result);
         setHwAccel((prev) => (prev === 'none' ? result.best : prev));
       })
-      .catch((err: unknown) => console.error('[App] GPU detection failed:', err));
+      .catch((err: unknown) => console.error('[useBroadcastSettings] GPU detection failed:', err));
   }, [ipc]);
 
   return { bitrate, setBitrate, preset, setPreset, hwAccel, setHwAccel, detectedEncoder };
