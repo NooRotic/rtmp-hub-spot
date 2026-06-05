@@ -21,7 +21,7 @@ describe('renderHook helper', () => {
     });
     act(() => result.current.setN(7));
     expect(result.current.n).toBe(7);
-    rerender();
+    act(() => { rerender(); });
     expect(result.current.n).toBe(7); // would reset to 0 if rerender remounted
     unmount();
   });
