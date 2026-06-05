@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useWebRTC } from './hooks/useWebRTC';
 import { useMediaDevices } from './hooks/useMediaDevices';
+import { useElectronBridge } from './hooks/useElectronBridge';
 import VideoFeed from './components/VideoFeed';
 import GridView from './components/GridView';
 import ChatBox from './components/ChatBox';
@@ -92,19 +93,7 @@ function useResizableSidebar(initialWidth: number) {
  * @returns {JSX.Element} The rendered React Application.
  */
 function App() {
-  const isElectron = useMemo(() => {
-    return typeof window !== 'undefined' && 
-           (navigator.userAgent.toLowerCase().indexOf(' electron/') > -1 || 
-            (window as any).process?.versions?.electron);
-  }, []);
-
-  const ipc = useMemo(() => {
-    if (!isElectron) return null;
-    // Electron might not have window.electron if contextIsolation isn't set up that way
-    // Try to get it from window or window.require if nodeIntegration is true
-    return (window as any).electron?.ipcRenderer || 
-           ((window as any).require ? (window as any).require('electron').ipcRenderer : null);
-  }, [isElectron]);
+  const { isElectron, ipc } = useElectronBridge();
 
   /** True when running in admin capacity — either Electron or browser with ?role=admin query param. */
   const isAdminMode = useMemo(() => {
