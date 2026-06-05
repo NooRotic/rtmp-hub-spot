@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { NTButton } from './NTButton';
 
 /** `rtmp://{host}:{port}/live/{streamKey}` — the hub's RTMP ingest route. */
 export function buildRouteUrl(host: string, streamKey: string, port = 1935): string {
@@ -40,7 +41,7 @@ export function CopyRouteField({
   return (
     <span className="ntd-copy">
       <code className="ntd-copy__url">{url}</code>
-      <button className="ntd-btn ntd-btn--go" onClick={copy}>Copy</button>
+      <NTButton go onClick={copy}>Copy</NTButton>
       {lanIp && (
         <button
           className="ntd-copy__toggle"
