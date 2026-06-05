@@ -17,6 +17,7 @@
   --ntd-go: #1f7a3f;
   --ntd-go-hi: #2ee06a;
   --ntd-font: "Tahoma", "MS Sans Serif", sans-serif;
+  --ntd-font-mono: "Consolas", "Courier New", monospace;
 
   background: var(--ntd-face);
   color: var(--ntd-text);
@@ -82,6 +83,7 @@
   font-family: var(--ntd-font);
   font-size: 12px;
 }
+/* --idle re-states the base default so callers can always pass a tone modifier (API symmetry). */
 .ntd-field--live { border-color: var(--ntd-live); }
 .ntd-field--warn { border-color: var(--ntd-warn); }
 .ntd-field--error { border-color: var(--ntd-error); }
@@ -89,6 +91,7 @@
 
 /* Status dot + tag — redundant encoding (color + dot + text) per spec §3. */
 .ntd-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; background: var(--ntd-idle); }
+/* --idle re-states the base default (API symmetry; callers always pass a tone). */
 .ntd-dot--live { background: var(--ntd-live); box-shadow: 0 0 4px var(--ntd-live); }
 .ntd-dot--warn { background: var(--ntd-warn); }
 .ntd-dot--error { background: var(--ntd-error); }
@@ -117,7 +120,7 @@
   box-shadow: inset 1px 1px rgba(255, 255, 255, 0.4);
   border: 1px solid var(--ntd-sh);
   padding: 3px 6px;
-  font-family: "Consolas", "Courier New", monospace;
+  font-family: var(--ntd-font-mono);
   font-size: 12px;
   user-select: all;
 }
