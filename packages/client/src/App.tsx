@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useWebRTC } from './hooks/useWebRTC';
 import { useMediaDevices } from './hooks/useMediaDevices';
 import { useElectronBridge } from './hooks/useElectronBridge';
+import { useFfmpegPipeline } from './hooks/useFfmpegPipeline';
 import VideoFeed from './components/VideoFeed';
 import GridView from './components/GridView';
 import ChatBox from './components/ChatBox';
@@ -143,16 +144,7 @@ function App() {
   const [activeRecordings, setActiveRecordings] = useState<{ streamKey: string; path: string; startTime: number }[]>([]);
   const [recNow, setRecNow] = useState(Date.now());
 
-  // FFmpeg pipeline health
-  const [ffmpegStatus, setFfmpegStatus] = useState<{
-    state: 'idle' | 'starting' | 'running' | 'error' | 'stopped';
-    streamKey: string | null;
-    message?: string;
-  }>({ state: 'idle', streamKey: null });
-  const [ffmpegStats, setFfmpegStats] = useState<{
-    frame: number; fps: number; bitrate: string;
-    speed: number; time: string; size: string; streamKey: string;
-  } | null>(null);
+  const { status: ffmpegStatus, stats: ffmpegStats } = useFfmpegPipeline(ipc);
 
   // Grid Overlay Settings
   const [showWatermark, setShowWatermark] = useState<boolean>(false);
@@ -252,24 +244,6 @@ function App() {
         console.error('[App] GPU detection failed:', err);
       });
   }, [isElectron, ipc]);
-
-  // Listen for FFmpeg pipeline state and stats from the Electron main process
-  useEffect(() => {
-    if (!ipc) return;
-    const handleStatus = (_: any, data: { state: 'idle' | 'starting' | 'running' | 'error' | 'stopped'; streamKey: string | null; message?: string }) => {
-      setFfmpegStatus(data);
-      if (data.state !== 'running') setFfmpegStats(null);
-    };
-    const handleStats = (_: any, data: typeof ffmpegStats) => {
-      setFfmpegStats(data);
-    };
-    ipc.on('ffmpeg-status', handleStatus);
-    ipc.on('ffmpeg-stats', handleStats);
-    return () => {
-      ipc.removeListener('ffmpeg-status', handleStatus);
-      ipc.removeListener('ffmpeg-stats', handleStats);
-    };
-  }, [ipc]);
 
   // Tick every second while recordings are active (for elapsed time display)
   useEffect(() => {
