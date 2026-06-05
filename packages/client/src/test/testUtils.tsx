@@ -42,6 +42,34 @@ export function cleanup() {
   }
 }
 
+// ─── renderHook ────────────────────────────────────────────────────────────────
+
+interface RenderHookResult<T> {
+  result: { current: T };
+  rerender: () => void;
+  unmount: () => void;
+}
+
+/**
+ * Minimal renderHook (react-dom/client + act). Renders a probe component that
+ * calls `hook()` and captures its return into `result.current` on every render.
+ * Effects run inside act(), so synchronous effect updates are visible immediately;
+ * for async effects, wrap the trigger in `await act(async () => {})` in the test.
+ */
+export function renderHook<T>(hook: () => T): RenderHookResult<T> {
+  const result = { current: undefined as unknown as T };
+  const Probe = () => { result.current = hook(); return null; };
+  const el = document.createElement('div');
+  document.body.appendChild(el);
+  const root = createRoot(el);
+  act(() => { root.render(<Probe />); });
+  return {
+    result,
+    rerender: () => act(() => { root.render(<Probe />); }),
+    unmount: () => { act(() => root.unmount()); el.remove(); },
+  };
+}
+
 // ─── DOM query helpers ────────────────────────────────────────────────────────
 
 type Matcher = string | RegExp;
