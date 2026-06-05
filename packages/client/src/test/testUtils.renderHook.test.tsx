@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { act } from 'react';
 import { useState, useEffect } from 'react';
 import { renderHook } from './testUtils';
 
@@ -10,6 +11,18 @@ describe('renderHook helper', () => {
       return n;
     });
     expect(result.current).toBe(42); // effect flushed inside act()
+    unmount();
+  });
+
+  it('rerender preserves hook state instead of remounting', () => {
+    const { result, rerender, unmount } = renderHook(() => {
+      const [n, setN] = useState(0);
+      return { n, setN };
+    });
+    act(() => result.current.setN(7));
+    expect(result.current.n).toBe(7);
+    rerender();
+    expect(result.current.n).toBe(7); // would reset to 0 if rerender remounted
     unmount();
   });
 });

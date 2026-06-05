@@ -50,22 +50,32 @@ interface RenderHookResult<T> {
   unmount: () => void;
 }
 
+// Stable, module-level probe so rerender() re-renders the SAME component instance
+// (preserving hook state) instead of remounting a fresh closure each time.
+function HookProbe<T>({ hookFn, store }: { hookFn: () => T; store: { current: T } }) {
+  store.current = hookFn();
+  return null;
+}
+
 /**
- * Minimal renderHook (react-dom/client + act). Renders a probe component that
- * calls `hook()` and captures its return into `result.current` on every render.
- * Effects run inside act(), so synchronous effect updates are visible immediately;
- * for async effects, wrap the trigger in `await act(async () => {})` in the test.
+ * Minimal renderHook (react-dom/client + act). Renders a stable probe that calls
+ * `hook()` and captures its return into `result.current` on every render. Effects
+ * run inside act(), so synchronous effect updates are visible immediately; for async
+ * effects, wrap the trigger in `await act(async () => {})` in the test. `rerender()`
+ * preserves hook state (same instance). The root is also registered with the module
+ * `mountedRoots` registry, so `cleanup()` releases it even if a test omits `unmount()`.
  */
 export function renderHook<T>(hook: () => T): RenderHookResult<T> {
   const result = { current: undefined as unknown as T };
-  const Probe = () => { result.current = hook(); return null; };
   const el = document.createElement('div');
   document.body.appendChild(el);
   const root = createRoot(el);
-  act(() => { root.render(<Probe />); });
+  const draw = () => act(() => { root.render(<HookProbe hookFn={hook} store={result} />); });
+  draw();
+  mountedRoots.push({ root, el });
   return {
     result,
-    rerender: () => act(() => { root.render(<Probe />); }),
+    rerender: draw,
     unmount: () => { act(() => root.unmount()); el.remove(); },
   };
 }
