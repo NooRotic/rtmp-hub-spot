@@ -10,6 +10,8 @@ export interface RelayEntry {
   stats?: Omit<RelayStats, 'sourceKey' | 'destinationId'>;
 }
 
+// UI-side composite key. Uses "::" (not the backend relay-manager's "relay:src:dest")
+// since this is a separate client-side Map — only needs to be unique per (source, dest).
 const keyOf = (sourceKey: string, destinationId: string) => `${sourceKey}::${destinationId}`;
 
 /**
@@ -49,7 +51,7 @@ export function useRelays(ipc: IpcBridge | null): { relays: Map<string, RelayEnt
         const k = keyOf(s.sourceKey, s.destinationId);
         const existing = prev.get(k);
         if (!existing) return prev; // stats for an unknown relay — ignore
-        const { sourceKey, destinationId, ...stats } = s;
+        const { sourceKey: _sourceKey, destinationId: _destinationId, ...stats } = s;
         const next = new Map(prev);
         next.set(k, { ...existing, stats });
         return next;

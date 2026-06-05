@@ -53,4 +53,14 @@ describe('useRelays', () => {
     expect(result.current.relays.size).toBe(0);
     unmount();
   });
+
+  it('keeps the entry on error state and carries the message', () => {
+    const { result, unmount } = renderHook(() => useRelays(fake.ipc));
+    act(() => fake.emit('relay-status', { sourceKey: 'grid', destinationId: 'yt', state: 'live' }));
+    act(() => fake.emit('relay-status', { sourceKey: 'grid', destinationId: 'yt', state: 'error', message: 'Auth failed' }));
+    const e = result.current.relays.get('grid::yt');
+    expect(e?.state).toBe('error');
+    expect(e?.message).toBe('Auth failed');
+    unmount();
+  });
 });
