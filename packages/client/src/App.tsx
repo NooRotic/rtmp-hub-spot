@@ -4,6 +4,7 @@ import { useMediaDevices } from './hooks/useMediaDevices';
 import { useElectronBridge } from './hooks/useElectronBridge';
 import { useFfmpegPipeline } from './hooks/useFfmpegPipeline';
 import { useRecordings } from './hooks/useRecordings';
+import { useBroadcastSettings } from './hooks/useBroadcastSettings';
 import VideoFeed from './components/VideoFeed';
 import GridView from './components/GridView';
 import ChatBox from './components/ChatBox';
@@ -135,12 +136,12 @@ function App() {
   const [gridStream, setGridStream] = useState<MediaStream | null>(null);
   const [isGridShared, setIsGridShared] = useState<boolean>(false);
   
-  // Broadcast Quality Settings
-  const [broadcastBitrate, setBroadcastBitrate] = useState<string>('2500k');
-  const [broadcastPreset, setBroadcastPreset] = useState<string>('ultrafast');
-  const [hwAccel, setHwAccel] = useState<string>('none');
-  const [detectedEncoder, setDetectedEncoder] = useState<{ best: string; bestLabel: string; available: string[] } | null>(null);
-  
+  const {
+    bitrate: broadcastBitrate, setBitrate: setBroadcastBitrate,
+    preset: broadcastPreset, setPreset: setBroadcastPreset,
+    hwAccel, setHwAccel,
+    detectedEncoder,
+  } = useBroadcastSettings(ipc);
 
   const { status: ffmpegStatus, stats: ffmpegStats } = useFfmpegPipeline(ipc);
 
@@ -229,22 +230,6 @@ function App() {
       return () => clearInterval(interval);
     }
   }, [isElectron, ipc]);
-
-  // GPU Encoder Auto-Detection (Electron only, runs once on startup)
-  useEffect(() => {
-    if (!isElectron || !ipc) return;
-    ipc.invoke('detect-gpu-encoder')
-      .then((result: { best: string; bestLabel: string; available: string[] }) => {
-        console.log('[App] GPU encoder detection result:', result);
-        setDetectedEncoder(result);
-        // Only auto-set if user hasn't already picked something (we start at 'none')
-        setHwAccel(prev => prev === 'none' ? result.best : prev);
-      })
-      .catch((err: any) => {
-        console.error('[App] GPU detection failed:', err);
-      });
-  }, [isElectron, ipc]);
-
 
 
 
