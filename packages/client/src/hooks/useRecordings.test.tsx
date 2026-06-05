@@ -61,4 +61,28 @@ describe('useRecordings', () => {
     expect(result.current.activeRecordings).toHaveLength(0);
     unmount();
   });
+
+  it('ticks recNow every second only while a recording is active', async () => {
+    vi.useFakeTimers();
+    try {
+      const ipcLocal = makeFakeIpc().ipc;
+      (ipcLocal.invoke as any).mockResolvedValue({ success: true, path: 'p' });
+      const { result, unmount } = renderHook(() => useRecordings(ipcLocal, null));
+
+      // No active recordings: advancing time must NOT change recNow (interval not set).
+      const t0 = result.current.recNow;
+      await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
+      expect(result.current.recNow).toBe(t0);
+
+      // Start a recording: the tick should now advance recNow.
+      await act(async () => { await result.current.startRecording('grid'); });
+      const t1 = result.current.recNow;
+      await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+      expect(result.current.recNow).toBeGreaterThan(t1);
+
+      unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
