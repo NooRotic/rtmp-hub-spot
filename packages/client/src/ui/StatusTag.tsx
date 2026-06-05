@@ -1,4 +1,5 @@
 import { toneFor } from './toneFor';
+import { StatusDot } from './StatusDot';
 
 /**
  * Status pill with redundant encoding (border color + dot + text label) for
@@ -9,7 +10,7 @@ export function StatusTag({ state, label }: { state: string; label?: string }) {
   const tone = toneFor(state);
   return (
     <span className={`ntd-tag ntd-tag--${tone}`} data-tone={tone}>
-      <span className={`ntd-dot ntd-dot--${tone}`} aria-hidden="true" />
+      <StatusDot state={state} />
       {label ?? state}
     </span>
   );
