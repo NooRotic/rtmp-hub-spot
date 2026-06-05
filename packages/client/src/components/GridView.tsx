@@ -1,11 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { isElectron, getIpc } from '../hooks/useElectronBridge';
 
-const isElectron = navigator.userAgent.toLowerCase().indexOf(' electron/') > -1;
-// Prefer the contextBridge surface (window.electron); fall back to the legacy
-// nodeIntegration path so this works before and after the security flag flip.
-const ipc = isElectron
-  ? ((window as any).electron?.ipcRenderer ?? (window as any).require?.('electron')?.ipcRenderer ?? null)
-  : null;
+// For the Electron Admin environment
+const ipc = getIpc();
 
 interface GridViewProps {
   streams: { id: string; stream: MediaStream | undefined; label: string }[];

@@ -2,9 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import io from 'socket.io-client';
 import Peer from 'simple-peer';
 
-export const isElectron = typeof window !== 'undefined' && 
-                          (navigator.userAgent.toLowerCase().indexOf(' electron/') > -1 || 
-                           (window as any).process?.versions?.electron);
+import { isElectron } from './useElectronBridge';
+export { isElectron };
 
 /**
  * Hook to manage Socket.io signaling and Simple-Peer connections for a Full Mesh WebRTC network.

@@ -1,13 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { feedKey } from '../utils/streamKey';
+import { isElectron, getIpc } from '../hooks/useElectronBridge';
 
 // For the Electron Admin environment
-const isElectron = navigator.userAgent.toLowerCase().indexOf(' electron/') > -1;
-// Prefer the contextBridge surface (window.electron); fall back to the legacy
-// nodeIntegration path so this works before and after the security flag flip.
-const ipc = isElectron
-  ? ((window as any).electron?.ipcRenderer ?? (window as any).require?.('electron')?.ipcRenderer ?? null)
-  : null;
+const ipc = getIpc();
 
 interface VideoFeedProps {
   stream?: MediaStream;
