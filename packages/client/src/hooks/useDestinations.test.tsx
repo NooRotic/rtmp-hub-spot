@@ -22,7 +22,7 @@ function makeStore(initial: { destinations?: RtmpDestination[]; bindings?: Desti
         return true;
       case 'bindings:set': {
         const i = store.bindings.findIndex((b) => b.sourceKey === arg.sourceKey && b.destinationId === arg.destinationId);
-        if (i >= 0) store.bindings[i] = arg; else store.bindings = [...store.bindings, arg];
+        store.bindings = i >= 0 ? store.bindings.map((b, j) => (j === i ? arg : b)) : [...store.bindings, arg];
         return true;
       }
       case 'bindings:remove':
@@ -61,6 +61,8 @@ describe('useDestinations', () => {
     await act(async () => {});
     await act(async () => { await result.current.removeDestination('yt'); });
     expect(ipc.invoke).toHaveBeenCalledWith('destinations:remove', 'yt');
+    // NOTE: this verifies the post-reconcile OUTCOME (bindings gone). The optimistic
+    // pre-refresh cascade isn't isolated here (refresh re-fetches the cascaded store).
     expect(result.current.destinations).toHaveLength(0);
     expect(result.current.bindings).toHaveLength(0);
     unmount();

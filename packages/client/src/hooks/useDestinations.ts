@@ -32,23 +32,32 @@ export function useDestinations(ipc: IpcBridge | null): {
   const addDestination = useCallback(async (dest: RtmpDestination) => {
     if (!ipc) return;
     setDestinations((prev) => [...prev, dest]); // optimistic
-    await ipc.invoke('destinations:add', dest);
-    await refresh();
+    try {
+      await ipc.invoke('destinations:add', dest);
+    } finally {
+      await refresh(); // reconcile with server truth (also on failure)
+    }
   }, [ipc, refresh]);
 
   const updateDestination = useCallback(async (dest: RtmpDestination) => {
     if (!ipc) return;
     setDestinations((prev) => prev.map((x) => (x.id === dest.id ? dest : x))); // optimistic
-    await ipc.invoke('destinations:update', dest);
-    await refresh();
+    try {
+      await ipc.invoke('destinations:update', dest);
+    } finally {
+      await refresh();
+    }
   }, [ipc, refresh]);
 
   const removeDestination = useCallback(async (id: string) => {
     if (!ipc) return;
     setDestinations((prev) => prev.filter((x) => x.id !== id)); // optimistic
     setBindings((prev) => prev.filter((b) => b.destinationId !== id)); // mirror backend G3 cascade
-    await ipc.invoke('destinations:remove', id);
-    await refresh();
+    try {
+      await ipc.invoke('destinations:remove', id);
+    } finally {
+      await refresh();
+    }
   }, [ipc, refresh]);
 
   const setBinding = useCallback(async (binding: DestinationBinding) => {
@@ -58,15 +67,21 @@ export function useDestinations(ipc: IpcBridge | null): {
       if (i >= 0) { const next = [...prev]; next[i] = binding; return next; }
       return [...prev, binding];
     }); // optimistic upsert
-    await ipc.invoke('bindings:set', binding);
-    await refresh();
+    try {
+      await ipc.invoke('bindings:set', binding);
+    } finally {
+      await refresh();
+    }
   }, [ipc, refresh]);
 
   const removeBinding = useCallback(async (sourceKey: string, destinationId: string) => {
     if (!ipc) return;
     setBindings((prev) => prev.filter((b) => !(b.sourceKey === sourceKey && b.destinationId === destinationId))); // optimistic
-    await ipc.invoke('bindings:remove', { sourceKey, destinationId });
-    await refresh();
+    try {
+      await ipc.invoke('bindings:remove', { sourceKey, destinationId });
+    } finally {
+      await refresh();
+    }
   }, [ipc, refresh]);
 
   return { destinations, bindings, refresh, addDestination, updateDestination, removeDestination, setBinding, removeBinding };
