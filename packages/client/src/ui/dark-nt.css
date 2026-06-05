@@ -1,0 +1,125 @@
+/* Dark-mode NT primitives. The dark look encoded once; components reference these
+   classes/vars. Scoped under .ntd so it never bleeds into the legacy light theme. */
+.ntd {
+  --ntd-face: #2b2b2b;
+  --ntd-face-2: #232323;
+  --ntd-hi: #585858;        /* top-left bevel highlight */
+  --ntd-sh: #0a0a0a;        /* bottom-right bevel shadow */
+  --ntd-field: #141414;     /* inset field bg */
+  --ntd-text: #e6e6e6;
+  --ntd-text-dim: #9a9a9a;
+  --ntd-navy-a: #000064;
+  --ntd-navy-b: #0a59b0;
+  --ntd-live: #2ee06a;
+  --ntd-warn: #f0a020;
+  --ntd-error: #ff4d4d;
+  --ntd-idle: #555555;
+  --ntd-go: #1f7a3f;
+  --ntd-go-hi: #2ee06a;
+  --ntd-font: "Tahoma", "MS Sans Serif", sans-serif;
+
+  background: var(--ntd-face);
+  color: var(--ntd-text);
+  font-family: var(--ntd-font);
+}
+
+/* Window: light top-left highlight + dark bottom-right shadow + drop shadow. */
+.ntd-window {
+  background: var(--ntd-face);
+  box-shadow:
+    inset 1px 1px var(--ntd-hi),
+    inset -1px -1px var(--ntd-sh),
+    2px 2px 6px rgba(0, 0, 0, 0.55);
+  padding: 2px;
+}
+.ntd-window__title {
+  background: linear-gradient(90deg, var(--ntd-navy-a), var(--ntd-navy-b));
+  color: #fff;
+  font-weight: bold;
+  padding: 3px 6px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.ntd-window__body { padding: 10px; }
+
+/* Button: beveled. .ntd-btn--go is the green primary (copy actions). */
+.ntd-btn {
+  background: var(--ntd-face);
+  color: var(--ntd-text);
+  border-top: 2px solid var(--ntd-hi);
+  border-left: 2px solid var(--ntd-hi);
+  border-right: 2px solid var(--ntd-sh);
+  border-bottom: 2px solid var(--ntd-sh);
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  outline: none;
+}
+.ntd-btn:active {
+  border-top: 2px solid var(--ntd-sh);
+  border-left: 2px solid var(--ntd-sh);
+  border-right: 2px solid var(--ntd-hi);
+  border-bottom: 2px solid var(--ntd-hi);
+  padding: 5px 9px 3px 11px;
+}
+.ntd-btn--go {
+  background: var(--ntd-go);
+  border-top-color: var(--ntd-go-hi);
+  border-left-color: var(--ntd-go-hi);
+  color: #fff;
+  font-weight: bold;
+}
+.ntd-btn:disabled { opacity: 0.45; cursor: default; }
+
+/* Field: dark inset, white inner highlight edge, 2px status-colored border. */
+.ntd-field {
+  background: var(--ntd-field);
+  color: var(--ntd-text);
+  box-shadow: inset 1px 1px rgba(255, 255, 255, 0.55);
+  border: 2px solid var(--ntd-idle);
+  padding: 4px 6px;
+  font-family: var(--ntd-font);
+  font-size: 12px;
+}
+.ntd-field--live { border-color: var(--ntd-live); }
+.ntd-field--warn { border-color: var(--ntd-warn); }
+.ntd-field--error { border-color: var(--ntd-error); }
+.ntd-field--idle { border-color: var(--ntd-idle); }
+
+/* Status dot + tag — redundant encoding (color + dot + text) per spec §3. */
+.ntd-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; background: var(--ntd-idle); }
+.ntd-dot--live { background: var(--ntd-live); box-shadow: 0 0 4px var(--ntd-live); }
+.ntd-dot--warn { background: var(--ntd-warn); }
+.ntd-dot--error { background: var(--ntd-error); }
+.ntd-dot--idle { background: var(--ntd-idle); }
+
+.ntd-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: bold;
+  border: 2px solid var(--ntd-idle);
+  background: var(--ntd-face-2);
+}
+.ntd-tag--live { border-color: var(--ntd-live); color: var(--ntd-live); }
+.ntd-tag--warn { border-color: var(--ntd-warn); color: var(--ntd-warn); }
+.ntd-tag--error { border-color: var(--ntd-error); color: var(--ntd-error); }
+.ntd-tag--idle { border-color: var(--ntd-idle); color: var(--ntd-text-dim); }
+
+/* Copy-route field. */
+.ntd-copy { display: inline-flex; align-items: center; gap: 6px; }
+.ntd-copy__url {
+  background: var(--ntd-field);
+  color: var(--ntd-text);
+  box-shadow: inset 1px 1px rgba(255, 255, 255, 0.4);
+  border: 1px solid var(--ntd-sh);
+  padding: 3px 6px;
+  font-family: "Consolas", "Courier New", monospace;
+  font-size: 12px;
+  user-select: all;
+}
+.ntd-copy__toggle { font-size: 11px; color: var(--ntd-text-dim); cursor: pointer; }
+.ntd-copy__copied { color: var(--ntd-live); font-size: 11px; font-weight: bold; }
