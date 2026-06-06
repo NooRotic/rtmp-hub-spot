@@ -389,7 +389,7 @@ function App() {
       )}
       {/* Draggable Title Bar (Electron Only) */}
       {isElectron && (
-        <div className="app-title-bar">
+        <div className="app-title-bar ntd">
           <div className="app-title-text">
             <div style={{ width: '16px', height: '16px', backgroundColor: '#000080', border: '1px solid #fff' }}></div>
             <span>RTMP HUB SPOT - ADMINISTRATOR</span>
@@ -600,12 +600,12 @@ function App() {
               </div>
               <ChatBox messages={chatMessages} onSendMessage={sendMessage} />
             </div>
-            <div className="divider" onMouseDown={startResizing}></div>
+            <div className="divider ntd" onMouseDown={startResizing}></div>
           </>
         )}
 
         {/* Main Content Area */}
-        <div style={{ flex: 1, padding: '20px', overflowY: 'auto' }}>
+        <div className="ntd" style={{ flex: 1, padding: '20px', overflowY: 'auto' }}>
           <div className="window ntd">
             <div className="window-title">
               <span>{isElectron ? 'Admin Video Hub' : 'Client Participant Portal'}</span>

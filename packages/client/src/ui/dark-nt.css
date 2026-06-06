@@ -186,3 +186,8 @@
 .window.ntd { background: var(--ntd-face); color: var(--ntd-text); }
 .window.ntd .window-content, .window.ntd .window-body { background: var(--ntd-face); color: var(--ntd-text); }
 .window.ntd .inset-field { background: var(--ntd-face-2); color: var(--ntd-text); box-shadow: inset 1px 1px var(--ntd-sh); }
+
+/* Dark-NT override for the outer app frame so the whole admin window is cohesive
+   (no light-grey seam around the darkened sidebar/main surfaces). */
+.app-title-bar.ntd { background: var(--ntd-face); color: var(--ntd-text); border-bottom: 2px solid var(--ntd-sh); }
+.divider.ntd { background: var(--ntd-face-2); }
