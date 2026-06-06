@@ -20,7 +20,7 @@ const ChatBox: React.FC<ChatBoxProps> = ({ messages, onSendMessage }) => {
   };
 
   return (
-    <div className="window chat-window">
+    <div className="window chat-window ntd">
       <div className="window-title">
         <span>Global Network Chat</span>
       </div>
@@ -28,12 +28,12 @@ const ChatBox: React.FC<ChatBoxProps> = ({ messages, onSendMessage }) => {
         <div className="chat-log inset-field">
           {messages.map((m, i) => (
             <div key={i}>
-              <span style={{ color: '#000080', fontWeight: 'bold' }}>[{new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}]</span>
+              <span style={{ color: 'var(--ntd-navy-b)', fontWeight: 'bold' }}>[{new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}]</span>
               {' '}
               <span style={{ fontWeight: 'bold' }}>{m.senderName}:</span> {m.message}
             </div>
           ))}
-          {messages.length === 0 && <div style={{ color: '#808080', fontStyle: 'italic' }}>Waiting for messages...</div>}
+          {messages.length === 0 && <div style={{ color: 'var(--ntd-text-dim)', fontStyle: 'italic' }}>Waiting for messages...</div>}
         </div>
         <div className="chat-input-area">
           <input 
@@ -44,7 +44,7 @@ const ChatBox: React.FC<ChatBoxProps> = ({ messages, onSendMessage }) => {
             onKeyPress={handleKeyPress}
             placeholder="Type message..."
           />
-          <button className="btn" onClick={handleSend} style={{ padding: '0 10px' }}>SEND</button>
+          <button className="ntd-btn" onClick={handleSend} style={{ padding: '0 10px' }}>SEND</button>
         </div>
       </div>
     </div>
