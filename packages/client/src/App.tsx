@@ -366,7 +366,7 @@ function App() {
     socketStatus,
     isConnected,
     serverStatus: (serverStatus ?? null) as AdminData['serverStatus'],
-    sources: deriveSources((serverStatus ?? null) as any, bindings),
+    sources: deriveSources(serverStatus ?? null, bindings),
     relays,
     destinations,
     bindings,
@@ -416,7 +416,7 @@ function App() {
       )}
       
       {/* Top Status Bar */}
-        <ServerStatusBar />
+      <ServerStatusBar />
 
       <div className="main-layout" style={{ flex: 1, display: 'flex' }}>
         {/* Side Panel (Admin + Admin Monitor) */}
