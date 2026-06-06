@@ -159,3 +159,12 @@
 .ntd-statusbar__item { display: inline-flex; align-items: center; gap: 5px; }
 .ntd-statusbar__label { color: var(--ntd-text-dim); }
 .ntd-statusbar__rollup { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-weight: bold; }
+
+.ntd-statusbar__join {
+  font-family: var(--ntd-font-mono);
+  background: var(--ntd-field);
+  border: 1px solid var(--ntd-sh);
+  padding: 1px 6px;
+  color: var(--ntd-text);
+  user-select: all;
+}

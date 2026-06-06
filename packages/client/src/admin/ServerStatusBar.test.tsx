@@ -45,4 +45,12 @@ describe('ServerStatusBar', () => {
     const { container: down } = renderBar({ isConnected: false, socketStatus: 'disconnected' });
     expect(down.querySelector('.ntd-dot--error')).toBeTruthy();
   });
+
+  it('shows the client Join URL built from the LAN IP', () => {
+    const { container } = renderBar();
+    const join = container.querySelector('.ntd-statusbar__join');
+    expect(join).toBeTruthy();
+    expect(join!.textContent).toContain('10.0.0.5'); // LAN IP from serverStatus.local
+    expect(join!.textContent).toMatch(/^https?:\/\//);
+  });
 });
