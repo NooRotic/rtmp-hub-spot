@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { act } from 'react';
 import { render, cleanup, screen, fireEvent } from '../../test/testUtils';
 import { AdminDataProvider, type AdminData } from '../AdminDataProvider';
 import { DestinationsTab } from './DestinationsTab';
@@ -74,12 +75,12 @@ describe('DestinationsTab', () => {
     expect(data.destinationActions.removeBinding).toHaveBeenCalledWith('grid', 'yt');
   });
 
-  it('adds a destination via the form', () => {
+  it('adds a destination via the form', async () => {
     const { data } = renderTab();
     fireEvent.click(screen.getByText(/add destination/i));
     fireEvent.change(document.body.querySelector('input[data-field="name"]')!, { target: { value: 'New Dest' } });
     fireEvent.change(document.body.querySelector('input[data-field="streamKey"]')!, { target: { value: 'k2' } });
-    fireEvent.click(screen.getByText(/^add$/i));
+    await act(async () => { fireEvent.click(screen.getByText(/^add$/i)); });
     expect(data.destinationActions.add).toHaveBeenCalledTimes(1);
     expect((data.destinationActions.add as any).mock.calls[0][0]).toMatchObject({ name: 'New Dest' });
   });
@@ -87,5 +88,16 @@ describe('DestinationsTab', () => {
   it('empty-state when there are no destinations', () => {
     const { container } = renderTab({ destinations: [] });
     expect(container.textContent).toMatch(/no destinations|add your first/i);
+  });
+
+  it('keeps the bind checkbox usable (not disabled) for an already-bound destination even when disabled', () => {
+    const disabledYT = { ...YT, enabled: false };
+    renderTab({
+      destinations: [disabledYT],
+      bindings: [{ sourceKey: 'grid', destinationId: 'yt', active: true } as DestinationBinding],
+    });
+    const bind = document.querySelector('input[data-field="bind-grid-yt"]') as HTMLInputElement;
+    expect(bind.checked).toBe(true);
+    expect(bind.disabled).toBe(false); // can still uncheck to unbind a disabled-but-bound dest
   });
 });

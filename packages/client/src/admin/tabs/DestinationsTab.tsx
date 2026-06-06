@@ -74,7 +74,7 @@ export function DestinationsTab() {
                 return (
                   <div key={d.id} className="ntd-bindrow">
                     <label style={{ display: 'inline-flex', gap: 5, alignItems: 'center' }}>
-                      <input type="checkbox" data-field={`bind-${s.sourceKey}-${d.id}`} checked={bound} disabled={!d.enabled} onChange={() => toggleBind(s.sourceKey, d.id, bound)} />
+                      <input type="checkbox" data-field={`bind-${s.sourceKey}-${d.id}`} checked={bound} disabled={!d.enabled && !bound} onChange={() => toggleBind(s.sourceKey, d.id, bound)} />
                       {d.name}
                     </label>
                     {bound && <StatusTag state={relayState} label={relayState.toUpperCase()} />}
