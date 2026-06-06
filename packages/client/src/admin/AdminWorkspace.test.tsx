@@ -32,9 +32,9 @@ describe('AdminWorkspace', () => {
     expect(container.textContent).toMatch(/bitrate/i);
   });
 
-  it('Destinations tab is a 3.4 placeholder', () => {
+  it('Destinations tab renders the destinations panel', () => {
     const { container } = renderWs();
     fireEvent.click(screen.getByText('Destinations'));
-    expect(container.textContent).toMatch(/3\.4|coming|destination management/i);
+    expect(container.textContent).toMatch(/add destination|no destinations/i);
   });
 });

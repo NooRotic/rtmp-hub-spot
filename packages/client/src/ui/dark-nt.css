@@ -168,3 +168,12 @@
   color: var(--ntd-text);
   user-select: all;
 }
+
+/* Destinations tab. */
+.ntd-destform { display: flex; flex-direction: column; gap: 8px; padding: 8px; background: var(--ntd-face-2); border: 1px solid var(--ntd-sh); margin-bottom: 10px; }
+.ntd-destform__hint { color: var(--ntd-text-dim); font-size: 11px; }
+.ntd-destrow { display: flex; align-items: center; gap: 8px; justify-content: space-between; padding: 5px 6px; border-top: 1px solid var(--ntd-sh); }
+.ntd-badge { font-size: 10px; font-weight: bold; padding: 1px 6px; background: var(--ntd-navy-b); color: #fff; text-transform: uppercase; }
+.ntd-destrow__key { font-family: var(--ntd-font-mono); color: var(--ntd-text-dim); }
+.ntd-bindgrid { margin-top: 6px; }
+.ntd-bindrow { display: flex; align-items: center; gap: 8px; padding: 3px 0; }

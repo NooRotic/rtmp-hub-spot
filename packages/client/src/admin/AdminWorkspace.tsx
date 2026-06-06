@@ -3,6 +3,7 @@ import { NTWindow } from '../ui/NTWindow';
 import { LiveTab } from './tabs/LiveTab';
 import { RecordingsTab } from './tabs/RecordingsTab';
 import { SettingsTab } from './tabs/SettingsTab';
+import { DestinationsTab } from './tabs/DestinationsTab';
 
 type TabKey = 'live' | 'destinations' | 'recordings' | 'settings';
 const TABS: { key: TabKey; label: string }[] = [
@@ -32,11 +33,7 @@ export function AdminWorkspace() {
         {active === 'live' && <LiveTab />}
         {active === 'recordings' && <RecordingsTab />}
         {active === 'settings' && <SettingsTab />}
-        {active === 'destinations' && (
-          <div style={{ color: 'var(--ntd-text-dim)', padding: '12px' }}>
-            Destination management — coming in 3.4.
-          </div>
-        )}
+        {active === 'destinations' && <DestinationsTab />}
       </div>
     </NTWindow>
   );
