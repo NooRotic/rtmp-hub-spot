@@ -5,6 +5,11 @@ import { useElectronBridge } from './hooks/useElectronBridge';
 import { useFfmpegPipeline } from './hooks/useFfmpegPipeline';
 import { useRecordings } from './hooks/useRecordings';
 import { useBroadcastSettings } from './hooks/useBroadcastSettings';
+import { useRelays } from './hooks/useRelays';
+import { useDestinations } from './hooks/useDestinations';
+import { deriveSources } from './admin/sources';
+import { AdminDataProvider, type AdminData } from './admin/AdminDataProvider';
+import { ServerStatusBar } from './admin/ServerStatusBar';
 import VideoFeed from './components/VideoFeed';
 import GridView from './components/GridView';
 import ChatBox from './components/ChatBox';
@@ -142,6 +147,18 @@ function App() {
     hwAccel, setHwAccel,
     detectedEncoder,
   } = useBroadcastSettings(ipc);
+
+  const { relays } = useRelays(ipc);
+  const {
+    destinations,
+    bindings,
+    addDestination,
+    updateDestination,
+    removeDestination,
+    setBinding,
+    removeBinding,
+    refresh: refreshDestinations,
+  } = useDestinations(ipc);
 
   const { status: ffmpegStatus, stats: ffmpegStats } = useFfmpegPipeline(ipc);
 
@@ -345,7 +362,32 @@ function App() {
     }))
   ], [userStream, adminCamActive, localCameraActive, isElectron, userName, broadcastLabel, peers, syntheticFeeds]);
 
+  const adminData: AdminData = {
+    socketStatus,
+    isConnected,
+    serverStatus: (serverStatus ?? null) as AdminData['serverStatus'],
+    sources: deriveSources((serverStatus ?? null) as any, bindings),
+    relays,
+    destinations,
+    bindings,
+    ffmpeg: { status: ffmpegStatus, stats: ffmpegStats },
+    recordings: { active: activeRecordings, now: recNow, start: startRecording, stop: stopRecording, openDir: openRecordingsDir },
+    settings: {
+      bitrate: broadcastBitrate, setBitrate: setBroadcastBitrate,
+      preset: broadcastPreset, setPreset: setBroadcastPreset,
+      hwAccel, setHwAccel, detectedEncoder,
+    },
+    destinationActions: {
+      add: addDestination, update: updateDestination, remove: removeDestination,
+      setBinding, removeBinding, refresh: refreshDestinations,
+    },
+    previewOpen,
+    setPreviewOpen,
+    refreshTelemetry,
+  };
+
   return (
+    <AdminDataProvider value={adminData}>
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
       {/* Pre-flight lobby for browser clients */}
       {!isAdminMode && !lobbyDone && (
@@ -374,28 +416,7 @@ function App() {
       )}
       
       {/* Top Status Bar */}
-      <div className="status-bar" style={{ flexWrap: 'wrap', rowGap: '4px' }}>
-        <div className="status-item">
-          <div className={`status-led ${
-            socketStatus === 'connected'    ? 'led-on' :
-            socketStatus === 'connecting'   ? 'led-warn' :
-            socketStatus === 'disconnected' ? 'led-warn' : 'led-off'
-          }`}></div>
-          Hub: {socketStatus === 'disconnected' ? 'RECONNECTING…' : socketStatus.toUpperCase()}
-        </div>
-        <div className="status-item">
-          <div className={`status-led ${isConnected ? 'led-on' : 'led-off'}`}></div>
-          Signaling: {isConnected ? 'ACTIVE' : 'IDLE'}
-        </div>
-        {serverStatus && (
-          <>
-            <div className="status-item">| Local: {serverStatus.local}</div>
-            <div className="status-item">| Network: {serverStatus.public}</div>
-            <div className="status-item">| Clients: {serverStatus.clientCount}</div>
-            <div className="status-item">| RTMP: {serverStatus.rtmpCount}</div>
-          </>
-        )}
-      </div>
+        <ServerStatusBar />
 
       <div className="main-layout" style={{ flex: 1, display: 'flex' }}>
         {/* Side Panel (Admin + Admin Monitor) */}
@@ -1025,6 +1046,7 @@ function App() {
         </div>
       </div>
     </div>
+    </AdminDataProvider>
   );
 }
 
