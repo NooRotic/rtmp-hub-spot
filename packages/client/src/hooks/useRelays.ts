@@ -10,9 +10,8 @@ export interface RelayEntry {
   stats?: Omit<RelayStats, 'sourceKey' | 'destinationId'>;
 }
 
-// UI-side composite key. Uses "::" (not the backend relay-manager's "relay:src:dest")
-// since this is a separate client-side Map — only needs to be unique per (source, dest).
-const keyOf = (sourceKey: string, destinationId: string) => `${sourceKey}::${destinationId}`;
+/** The Map key for a relay leg: "sourceKey::destinationId". Exported so UI lookups match. */
+export const relayKey = (sourceKey: string, destinationId: string) => `${sourceKey}::${destinationId}`;
 
 /**
  * L3 relay telemetry: reduces relay-status / relay-stats into a Map keyed by
@@ -28,7 +27,7 @@ export function useRelays(ipc: IpcBridge | null): { relays: Map<string, RelayEnt
 
     const onStatus = (_: unknown, d: RelayStatus) => {
       setRelays((prev) => {
-        const k = keyOf(d.sourceKey, d.destinationId);
+        const k = relayKey(d.sourceKey, d.destinationId);
         const next = new Map(prev);
         if (d.state === 'stopped') {
           next.delete(k);
@@ -48,7 +47,7 @@ export function useRelays(ipc: IpcBridge | null): { relays: Map<string, RelayEnt
 
     const onStats = (_: unknown, s: RelayStats) => {
       setRelays((prev) => {
-        const k = keyOf(s.sourceKey, s.destinationId);
+        const k = relayKey(s.sourceKey, s.destinationId);
         const existing = prev.get(k);
         if (!existing) return prev; // stats for an unknown relay — ignore
         const { sourceKey: _sourceKey, destinationId: _destinationId, ...stats } = s;
