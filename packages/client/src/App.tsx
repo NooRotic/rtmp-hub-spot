@@ -17,6 +17,7 @@ import ChatBox from './components/ChatBox';
 import Lobby from './components/Lobby';
 import mpegts from 'mpegts.js';
 import { localFlvUrl } from './components/RtmpPlayerTile';
+import { feedKey } from './utils/streamKey';
 export { RtmpPlayerTile, localFlvUrl } from './components/RtmpPlayerTile';
 
 // Effect for persistence
@@ -407,28 +408,28 @@ function App() {
         {/* Side Panel (Admin + Admin Monitor) */}
         {isAdminMode && (
           <>
-            <div className="side-panel" style={{ width: `${sidebarWidth}px`, display: 'flex', flexDirection: 'column' }}>
+            <div className="side-panel ntd" style={{ width: `${sidebarWidth}px`, display: 'flex', flexDirection: 'column' }}>
               <div style={{ flex: 1, overflowY: 'auto', paddingRight: '5px' }}>
-                <h3 style={{ marginTop: 0, borderBottom: '1px solid #808080' }}>System Status</h3>
-                <div className="inset-field" style={{ marginBottom: '10px', fontSize: '10px' }}>
+                <h3 style={{ marginTop: 0, borderBottom: '1px solid var(--ntd-sh)' }}>System Status</h3>
+                <div className="ntd-field" style={{ marginBottom: '10px', fontSize: '10px' }}>
                   <div><strong>NMS Server</strong>: Listening (1935/8000)</div>
                   <div><strong>WebRTC Bridge</strong>: Ready</div>
                   <div><strong>Virtual Cam</strong>: {allStreams.length > 0 ? 'Feeds Available' : 'No Input'}</div>
                   <div><strong>Active RTMP</strong>: {serverStatus?.rtmpCount || 0} Viewer(s)</div>
                 </div>
 
-                <h3 style={{ borderBottom: '1px solid #808080' }}>Connected Clients & Feeds</h3>
-                <div className="inset-field" style={{ height: '120px', overflowY: 'auto', fontSize: '10px', marginBottom: '10px' }}>
+                <h3 style={{ borderBottom: '1px solid var(--ntd-sh)' }}>Connected Clients & Feeds</h3>
+                <div className="ntd-field" style={{ height: '120px', overflowY: 'auto', fontSize: '10px', marginBottom: '10px' }}>
                   {peers.length === 0 && syntheticFeeds.length === 0 ? 'No clients connected.' : null}
                   {peers.map(p => (
-                    <div key={p.id} style={{ borderBottom: '1px solid #eee', padding: '2px 0' }}>
+                    <div key={p.id} style={{ borderBottom: '1px solid var(--ntd-sh)', padding: '2px 0' }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '3px', overflow: 'hidden' }}>
                           <span>⏺</span>
                           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '90px' }}>{p.name || p.id.slice(0, 8)}</span>
                           {p.stream ?
-                            <span style={{ color: '#00ff00', fontSize: '8px', flexShrink: 0 }}>[OK]</span> :
-                            <span style={{ color: '#ff0000', fontSize: '8px', flexShrink: 0 }}>[–]</span>
+                            <span style={{ color: 'var(--ntd-live)', fontSize: '8px', flexShrink: 0 }}>[OK]</span> :
+                            <span style={{ color: 'var(--ntd-error)', fontSize: '8px', flexShrink: 0 }}>[–]</span>
                           }
                         </div>
                         {isAdminMode && (
@@ -446,15 +447,15 @@ function App() {
                               title="Spotlight this feed in the grid"
                               style={{
                                 fontSize: '8px', padding: '1px 4px', cursor: 'pointer',
-                                background: spotlightId === p.id ? '#004488' : '#e0e0e0',
-                                color: spotlightId === p.id ? '#fff' : '#000',
-                                border: '1px solid #808080'
+                                background: spotlightId === p.id ? 'var(--ntd-navy-b)' : 'var(--ntd-face-2)',
+                                color: spotlightId === p.id ? '#fff' : 'var(--ntd-text)',
+                                border: '1px solid var(--ntd-sh)'
                               }}
                             >★</button>
                             <button
                               onClick={() => kickUser(p.id)}
                               title="Remove this user from the session"
-                              style={{ fontSize: '8px', padding: '1px 4px', cursor: 'pointer', background: '#ff000022', color: '#cc0000', border: '1px solid #cc0000' }}
+                              style={{ fontSize: '8px', padding: '1px 4px', cursor: 'pointer', background: '#ff000022', color: 'var(--ntd-error)', border: '1px solid var(--ntd-error)' }}
                             >✕</button>
                           </div>
                         )}
@@ -462,13 +463,13 @@ function App() {
                     </div>
                   ))}
                   {syntheticFeeds.map(f => (
-                    <div key={f.id} style={{ borderBottom: '1px solid #eee', padding: '2px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div key={f.id} style={{ borderBottom: '1px solid var(--ntd-sh)', padding: '2px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                       <div style={{ display: 'flex', alignItems: 'center' }}>
                         <span style={{ marginRight: '5px' }}>📡</span>
                         <span>{f.label}</span>
-                        {f.stream ? 
-                          <span style={{ color: '#00ff00', marginLeft: '5px', fontSize: '8px' }}>[LIVE]</span> : 
-                          <span style={{ color: '#ffaa00', marginLeft: '5px', fontSize: '8px' }}>[FETCHING]</span>
+                        {f.stream ?
+                          <span style={{ color: 'var(--ntd-live)', marginLeft: '5px', fontSize: '8px' }}>[LIVE]</span> :
+                          <span style={{ color: 'var(--ntd-warn)', marginLeft: '5px', fontSize: '8px' }}>[FETCHING]</span>
                         }
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
@@ -482,7 +483,7 @@ function App() {
                             /> Grid
                           </label>
                         )}
-                        <button onClick={() => removeSyntheticFeed(f.id)} style={{ fontSize: '8px', background: '#ff000033', border: '1px solid #f00', cursor: 'pointer' }}>X</button>
+                        <button onClick={() => removeSyntheticFeed(f.id)} style={{ fontSize: '8px', background: '#ff000033', border: '1px solid var(--ntd-error)', color: 'var(--ntd-error)', cursor: 'pointer' }}>X</button>
                       </div>
                     </div>
                   ))}
@@ -490,8 +491,8 @@ function App() {
 
                 {isAdminMode && (
                   <>
-                    <h3 style={{ borderBottom: '1px solid #808080', marginTop: '15px' }}>Grid Controls</h3>
-                    <div className="inset-field" style={{ padding: '5px', fontSize: '10px' }}>
+                    <h3 style={{ borderBottom: '1px solid var(--ntd-sh)', marginTop: '15px' }}>Grid Controls</h3>
+                    <div className="ntd-field" style={{ padding: '5px', fontSize: '10px' }}>
                       <div style={{ marginBottom: '5px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <span>Include Admin:</span>
                         <input 
@@ -545,53 +546,53 @@ function App() {
 
                 {isAdminMode && (
                   <>
-                    <h3 style={{ borderBottom: '1px solid #808080', marginTop: '15px' }}>Add RTMP Feed</h3>
-                    <div className="inset-field" style={{ padding: '5px', fontSize: '10px', marginBottom: '10px' }}>
+                    <h3 style={{ borderBottom: '1px solid var(--ntd-sh)', marginTop: '15px' }}>Add RTMP Feed</h3>
+                    <div className="ntd-field" style={{ padding: '5px', fontSize: '10px', marginBottom: '10px' }}>
                       <div style={{ marginBottom: '5px' }}>
-                        <input 
-                          type="text" 
-                          placeholder="Stream Key (e.g., guest1)" 
-                          className="inset-field" 
+                        <input
+                          type="text"
+                          placeholder="Stream Key (e.g., guest1)"
+                          className="ntd-field"
                           style={{ width: '100%', marginBottom: '2px', boxSizing: 'border-box' }}
                           value={newFeedKey}
                           onChange={(e) => setNewFeedKey(e.target.value)}
                         />
-                        <input 
-                          type="text" 
-                          placeholder="Label (e.g., Guest Cam)" 
-                          className="inset-field" 
+                        <input
+                          type="text"
+                          placeholder="Label (e.g., Guest Cam)"
+                          className="ntd-field"
                           style={{ width: '100%', marginBottom: '5px', boxSizing: 'border-box' }}
                           value={newFeedLabel}
                           onChange={(e) => setNewFeedLabel(e.target.value)}
                         />
-                        <button className="btn" style={{ width: '100%' }} onClick={addSyntheticFeed}>CONNECT EXT FEED</button>
+                        <button className="ntd-btn ntd-btn--go" style={{ width: '100%' }} onClick={addSyntheticFeed}>CONNECT EXT FEED</button>
                       </div>
                     </div>
                   </>
                 )}
 
-                <h3 style={{ borderBottom: '1px solid #808080' }}>Active RTMP Links</h3>
-                <div className="inset-field" style={{ padding: '8px', fontSize: '10px', marginBottom: '10px', color: '#00ff00', fontFamily: 'monospace' }}>
+                <h3 style={{ borderBottom: '1px solid var(--ntd-sh)' }}>Active RTMP Links</h3>
+                <div className="ntd-field" style={{ padding: '8px', fontSize: '10px', marginBottom: '10px', color: 'var(--ntd-live)', fontFamily: 'monospace' }}>
                   {isGridShared && isConnected && (() => {
                     const url = `rtmp://${serverStatus?.local || 'localhost'}/live/grid`;
                     return (
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
                         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>GRID: {url}</span>
-                        <button onClick={() => navigator.clipboard.writeText(url)} title="Copy to clipboard" style={{ fontSize: '8px', padding: '1px 5px', marginLeft: '4px', cursor: 'pointer', background: '#00440022', color: '#004400', border: '1px solid #006600', flexShrink: 0 }}>COPY</button>
+                        <button onClick={() => navigator.clipboard.writeText(url)} title="Copy to clipboard" className="ntd-btn ntd-btn--go" style={{ fontSize: '8px', padding: '1px 5px', marginLeft: '4px', flexShrink: 0 }}>COPY</button>
                       </div>
                     );
                   })()}
                   {peers.filter(p => p.stream).map(p => {
-                    const url = `rtmp://${serverStatus?.local || 'localhost'}/live/feed-${p.name.replace(/\s+/g, '-').toLowerCase()}`;
+                    const url = `rtmp://${serverStatus?.local || 'localhost'}/live/${feedKey(p.name)}`;
                     return (
                       <div key={p.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2px' }}>
                         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{p.name.split(' ')[0]}: {url}</span>
-                        <button onClick={() => navigator.clipboard.writeText(url)} title="Copy to clipboard" style={{ fontSize: '8px', padding: '1px 5px', marginLeft: '4px', cursor: 'pointer', background: '#00440022', color: '#004400', border: '1px solid #006600', flexShrink: 0 }}>COPY</button>
+                        <button onClick={() => navigator.clipboard.writeText(url)} title="Copy to clipboard" className="ntd-btn ntd-btn--go" style={{ fontSize: '8px', padding: '1px 5px', marginLeft: '4px', flexShrink: 0 }}>COPY</button>
                       </div>
                     );
                   })}
                   {!isGridShared && peers.filter(p => p.stream).length === 0 && (
-                    <div style={{ color: '#888' }}>No active broadcasts.</div>
+                    <div style={{ color: 'var(--ntd-text-dim)' }}>No active broadcasts.</div>
                   )}
                 </div>
 

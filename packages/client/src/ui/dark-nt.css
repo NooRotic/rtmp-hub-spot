@@ -177,3 +177,7 @@
 .ntd-destrow__key { font-family: var(--ntd-font-mono); color: var(--ntd-text-dim); }
 .ntd-bindgrid { margin-top: 6px; }
 .ntd-bindrow { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
+
+/* Dark-NT override for the legacy side-panel container + its section headers. */
+.side-panel.ntd { background: var(--ntd-face); color: var(--ntd-text); border-right: 2px solid var(--ntd-sh); }
+.side-panel.ntd h3 { border-bottom-color: var(--ntd-sh) !important; color: var(--ntd-text); }
