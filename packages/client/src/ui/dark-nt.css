@@ -127,6 +127,22 @@
 .ntd-copy__toggle { font-size: 11px; color: var(--ntd-text-dim); cursor: pointer; }
 .ntd-copy__copied { color: var(--ntd-live); font-size: 11px; font-weight: bold; }
 
+/* Tabbed workspace. */
+.ntd-tabs { display: flex; gap: 2px; padding: 4px 4px 0; background: var(--ntd-face); }
+.ntd-tab {
+  background: var(--ntd-face-2);
+  color: var(--ntd-text-dim);
+  border-top: 2px solid var(--ntd-hi);
+  border-left: 2px solid var(--ntd-hi);
+  border-right: 2px solid var(--ntd-sh);
+  border-bottom: none;
+  padding: 5px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.ntd-tab--active { background: var(--ntd-face); color: var(--ntd-text); font-weight: bold; position: relative; top: 1px; }
+.ntd-tabpanel { padding: 8px; background: var(--ntd-face); overflow-y: auto; }
+
 /* Server status strip (L1). */
 .ntd-statusbar {
   display: flex;
