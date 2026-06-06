@@ -67,6 +67,19 @@ export function SettingsTab() {
           <div style={{ color: 'var(--ntd-warn)', fontSize: 11 }}>⚠ Override active. Auto-detected: {detectedEncoder.bestLabel}</div>
         )}
       </label>
+
+      <div style={{ marginTop: 12, padding: 8, background: 'var(--ntd-face-2)', border: '1px solid var(--ntd-sh)', opacity: 0.85 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span className="ntd-badge" style={{ background: 'var(--ntd-warn)', color: '#000' }}>PRO</span>
+          <strong>Per-destination watermark</strong>
+        </div>
+        <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 6, color: 'var(--ntd-text-dim)' }}>
+          <input type="checkbox" data-field="pro-watermark" disabled checked={false} readOnly /> Add a custom logo/text overlay per destination
+        </label>
+        <div style={{ color: 'var(--ntd-text-dim)', fontSize: 11, marginTop: 4 }}>
+          Requires re-encode (decode → overlay → encode). Available in Pro — upgrade to unlock.
+        </div>
+      </div>
     </div>
   );
 }

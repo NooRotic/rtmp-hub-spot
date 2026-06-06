@@ -38,4 +38,13 @@ describe('SettingsTab', () => {
     render(<AdminDataProvider value={withSettings({ detectedEncoder: { best: 'amd', bestLabel: 'AMD AMF', available: ['amd'] } })}><SettingsTab /></AdminDataProvider>);
     expect(screen.getByText(/AMD AMF/)).toBeTruthy();
   });
+
+  it('shows a locked (disabled) Pro watermark toggle with an upsell', () => {
+    const { container } = render(<AdminDataProvider value={base}><SettingsTab /></AdminDataProvider>);
+    const toggle = container.querySelector('input[data-field="pro-watermark"]') as HTMLInputElement;
+    expect(toggle).toBeTruthy();
+    expect(toggle.disabled).toBe(true);
+    expect(container.textContent).toMatch(/pro/i);
+    expect(container.textContent).toMatch(/watermark/i);
+  });
 });
