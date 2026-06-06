@@ -27,7 +27,7 @@ export function LiveTab() {
         </div>
         {ffmpeg.status.state === 'running' && ffmpeg.stats ? (
           <code style={{ color: 'var(--ntd-text-dim)' }}>
-            {ffmpeg.stats.fps}fps · {ffmpeg.stats.bitrate} · {ffmpeg.stats.speed}x · {ffmpeg.stats.time}
+            {ffmpeg.stats.fps}fps · {ffmpeg.stats.bitrate} · {ffmpeg.stats.speed}x · frame {ffmpeg.stats.frame} · {ffmpeg.stats.size} · {ffmpeg.stats.time} · → {ffmpeg.status.streamKey}
           </code>
         ) : (
           <span style={{ color: 'var(--ntd-text-dim)' }}>{ffmpeg.status.message ?? 'No active broadcast.'}</span>
@@ -44,6 +44,7 @@ export function LiveTab() {
             <div key={p.streamKey} style={{ borderTop: '1px solid var(--ntd-sh)', paddingTop: 4, marginTop: 4 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                 <code style={{ fontWeight: 'bold' }}>{p.streamKey}</code>
+                <span style={{ color: 'var(--ntd-text-dim)', fontSize: 11 }}>{p.uptime ?? 0}s</span>
                 <span style={{ display: 'inline-flex', gap: 4 }}>
                   <NTButton onClick={() => togglePreview(p.streamKey)}>{previewOpen.has(p.streamKey) ? 'Hide' : 'Preview'}</NTButton>
                   {isRecording(p.streamKey)
@@ -67,10 +68,10 @@ export function LiveTab() {
           <div style={{ color: 'var(--ntd-text-dim)' }}>No viewers.</div>
         ) : (
           <table style={{ width: '100%', fontSize: 11 }}>
-            <thead><tr><th style={{ textAlign: 'left' }}>IP</th><th style={{ textAlign: 'left' }}>Path</th><th style={{ textAlign: 'left' }}>Uptime</th></tr></thead>
+            <thead><tr><th style={{ textAlign: 'left' }}>IP</th><th style={{ textAlign: 'left' }}>Path</th><th style={{ textAlign: 'left' }}>Mbps</th><th style={{ textAlign: 'left' }}>Uptime</th></tr></thead>
             <tbody>
               {sessions.map((s, i) => (
-                <tr key={s.id ?? i}><td>{s.ip ?? 'Unknown'}</td><td>{s.path ?? 'Unknown'}</td><td>{s.uptime ?? 0}s</td></tr>
+                <tr key={s.id ?? i}><td>{s.ip ?? 'Unknown'}</td><td>{s.path ?? 'Unknown'}</td><td>{((s.bitrate ?? 0) / 1024 / 1024).toFixed(2)}</td><td>{s.uptime ?? 0}s</td></tr>
               ))}
             </tbody>
           </table>

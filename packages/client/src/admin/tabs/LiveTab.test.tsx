@@ -11,7 +11,7 @@ vi.mock('../../components/RtmpPlayerTile', () => ({
 
 const base: AdminData = {
   socketStatus: 'connected', isConnected: true,
-  serverStatus: { local: '10.0.0.5', clientCount: 1, rtmpCount: 1, rtmpSessions: [], rtmpPublishers: [{ streamKey: 'grid' }] },
+  serverStatus: { local: '10.0.0.5', clientCount: 1, rtmpCount: 1, rtmpSessions: [{ id: 'v1', ip: '10.0.0.9', path: '/live/grid', uptime: 42, bitrate: 3_500_000 }], rtmpPublishers: [{ streamKey: 'grid', uptime: 75 }] },
   sources: [], relays: new Map(), destinations: [], bindings: [],
   ffmpeg: { status: { state: 'running', streamKey: 'grid' }, stats: { frame: 90, fps: 30, bitrate: '2500k', speed: 1, time: '00:00:03', size: '1MB', streamKey: 'grid' } },
   recordings: { active: [], now: 0, start: async () => {}, stop: () => {}, openDir: () => {} },
@@ -43,5 +43,24 @@ describe('LiveTab', () => {
     render_({ refreshTelemetry });
     fireEvent.click(screen.getByText(/refresh/i));
     expect(refreshTelemetry).toHaveBeenCalledOnce();
+  });
+
+  it('shows FFmpeg frame + size + target in the health line when running', () => {
+    const { container } = render_();
+    expect(container.textContent).toContain('90');     // frame
+    expect(container.textContent).toContain('1MB');    // size
+    expect(container.textContent).toContain('grid');   // target streamKey
+  });
+
+  it('shows publisher uptime', () => {
+    const { container } = render_();
+    expect(container.textContent).toContain('75s');
+  });
+
+  it('shows a viewer row with IP and a Mbps figure', () => {
+    const { container } = render_();
+    expect(container.textContent).toContain('10.0.0.9');
+    expect(container.textContent).toMatch(/Mbps/i);
+    expect(container.textContent).toContain('3.34'); // 3_500_000 / 1024 / 1024 ≈ 3.34
   });
 });
