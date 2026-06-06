@@ -606,7 +606,7 @@ function App() {
 
         {/* Main Content Area */}
         <div style={{ flex: 1, padding: '20px', overflowY: 'auto' }}>
-          <div className="window">
+          <div className="window ntd">
             <div className="window-title">
               <span>{isElectron ? 'Admin Video Hub' : 'Client Participant Portal'}</span>
             </div>
@@ -615,14 +615,14 @@ function App() {
                 <div style={{ display: 'flex', gap: '10px', marginBottom: '10px', flexWrap: 'wrap' }}>
                   <div style={{ flex: '1 1 auto', minWidth: '120px' }}>
                     <label>Camera: </label>
-                    <select className="inset-field" style={{ width: '100%', boxSizing: 'border-box' }} value={selectedVideo} onChange={(e) => setSelectedVideo(e.target.value)}>
+                    <select className="ntd-field" style={{ width: '100%', boxSizing: 'border-box' }} value={selectedVideo} onChange={(e) => setSelectedVideo(e.target.value)}>
                       <option value="">{isElectron ? 'Off' : 'Default Camera'}</option>
                       {videoDevices.map(d => <option key={d.deviceId} value={d.deviceId}>{d.label || 'Camera'}</option>)}
                     </select>
                   </div>
                   <div style={{ flex: '1 1 auto', minWidth: '120px' }}>
                     <label>Mic: </label>
-                    <select className="inset-field" style={{ width: '100%', boxSizing: 'border-box' }} value={selectedAudio} onChange={(e) => setSelectedAudio(e.target.value)}>
+                    <select className="ntd-field" style={{ width: '100%', boxSizing: 'border-box' }} value={selectedAudio} onChange={(e) => setSelectedAudio(e.target.value)}>
                       <option value="">{isElectron ? 'Off' : 'Default Mic'}</option>
                       {audioDevices.map(d => <option key={d.deviceId} value={d.deviceId}>{d.label || 'Microphone'}</option>)}
                     </select>
@@ -630,60 +630,60 @@ function App() {
                 </div>
                 {isElectron ? (
                   <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                    <button 
-                      className="btn" 
-                      onClick={() => setAdminCamActive(!adminCamActive)} 
-                      style={{ padding: '2px 20px', backgroundColor: adminCamActive ? '#ff000022' : '#00ff0022' }}
+                    <button
+                      className="ntd-btn"
+                      onClick={() => setAdminCamActive(!adminCamActive)}
+                      style={{ padding: '2px 20px', backgroundColor: adminCamActive ? 'var(--ntd-error)' : 'var(--ntd-go)' }}
                     >
                       {adminCamActive ? 'STOP ADMIN CAMERA' : 'START ADMIN CAMERA'}
                     </button>
-                    <button 
-                      className="btn" 
-                      onClick={() => setShowGrid(!showGrid)} 
-                      style={{ padding: '2px 20px', backgroundColor: showGrid ? '#00ff0022' : '#cfcfcf' }}
+                    <button
+                      className="ntd-btn"
+                      onClick={() => setShowGrid(!showGrid)}
+                      style={{ padding: '2px 20px', backgroundColor: showGrid ? 'var(--ntd-go)' : 'var(--ntd-face-2)' }}
                     >
                       {showGrid ? 'DISABLE GRID VIEW' : 'ENABLE GRID VIEW'}
                     </button>
-                    <button 
-                      className="btn" 
-                      onClick={() => setIsGridShared(!isGridShared)} 
-                      style={{ padding: '2px 20px', backgroundColor: isGridShared ? '#ff000022' : '#00ff0022' }}
+                    <button
+                      className="ntd-btn"
+                      onClick={() => setIsGridShared(!isGridShared)}
+                      style={{ padding: '2px 20px', backgroundColor: isGridShared ? 'var(--ntd-error)' : 'var(--ntd-go)' }}
                     >
                       {isGridShared ? 'STOP SHARING GRID' : 'SHARE GRID TO ALL'}
                     </button>
-                    <span style={{ fontSize: '10px', color: '#666' }}> (Visible to all connected clients)</span>
+                    <span style={{ fontSize: '10px', color: 'var(--ntd-text-dim)' }}> (Visible to all connected clients)</span>
                   </div>
                 ) : isAdminMode ? (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '4px 0' }}>
-                    <span style={{ background: '#000080', color: '#fff', padding: '3px 10px', fontFamily: 'monospace', fontSize: '10px', letterSpacing: '1px' }}>
+                    <span style={{ background: 'var(--ntd-navy-b)', color: '#fff', padding: '3px 10px', fontFamily: 'monospace', fontSize: '10px', letterSpacing: '1px' }}>
                       ◈ MONITOR MODE
                     </span>
-                    <span style={{ fontSize: '10px', color: '#555' }}>
+                    <span style={{ fontSize: '10px', color: 'var(--ntd-text-dim)' }}>
                       Connected as Admin Monitor. Broadcast controls require the Electron app.
                     </span>
                   </div>
                 ) : (
                   <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
                     <input
-                      className="inset-field"
+                      className="ntd-field"
                       type="text"
                       value={userName}
-                      onChange={(e) => setUserName(e.target.value)} 
-                      placeholder="Required: Enter your name" 
-                      disabled={isConnected} 
-                      style={{ border: !userName.trim() ? '1px solid #ff0000' : 'none', flex: '1 1 140px', minWidth: '140px' }}
+                      onChange={(e) => setUserName(e.target.value)}
+                      placeholder="Required: Enter your name"
+                      disabled={isConnected}
+                      style={{ border: !userName.trim() ? '2px solid var(--ntd-error)' : 'none', flex: '1 1 140px', minWidth: '140px' }}
                     />
-                    <button 
-                      className="btn" 
-                      onClick={() => setLocalCameraActive(!localCameraActive)} 
-                      style={{ padding: '6px 16px', backgroundColor: localCameraActive ? '#ff000022' : '#00ff0022', flex: '1 1 auto' }}
+                    <button
+                      className="ntd-btn"
+                      onClick={() => setLocalCameraActive(!localCameraActive)}
+                      style={{ padding: '6px 16px', backgroundColor: localCameraActive ? 'var(--ntd-error)' : 'var(--ntd-go)', flex: '1 1 auto' }}
                     >
                       {localCameraActive ? 'STOP CAMERA' : 'START CAMERA'}
                     </button>
-                    <button 
-                      className="btn" 
-                      onClick={isConnected ? disconnect : handleConnect} 
-                      style={{ padding: '6px 16px', backgroundColor: isConnected ? '#ff000022' : '#00ff0022', flex: '1 1 auto' }}
+                    <button
+                      className="ntd-btn"
+                      onClick={isConnected ? disconnect : handleConnect}
+                      style={{ padding: '6px 16px', backgroundColor: isConnected ? 'var(--ntd-error)' : 'var(--ntd-go)', flex: '1 1 auto' }}
                       disabled={!userName.trim()}
                     >
                       {isConnected ? 'DISCONNECT' : 'CONNECT TO HUB'}

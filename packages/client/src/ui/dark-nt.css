@@ -181,3 +181,8 @@
 /* Dark-NT override for the legacy side-panel container + its section headers. */
 .side-panel.ntd { background: var(--ntd-face); color: var(--ntd-text); border-right: 2px solid var(--ntd-sh); }
 .side-panel.ntd h3 { border-bottom-color: var(--ntd-sh) !important; color: var(--ntd-text); }
+
+/* Dark-NT override for the legacy main-area window chrome. */
+.window.ntd { background: var(--ntd-face); color: var(--ntd-text); }
+.window.ntd .window-content, .window.ntd .window-body { background: var(--ntd-face); color: var(--ntd-text); }
+.window.ntd .inset-field { background: var(--ntd-face-2); color: var(--ntd-text); box-shadow: inset 1px 1px var(--ntd-sh); }
