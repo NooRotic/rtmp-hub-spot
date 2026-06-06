@@ -16,7 +16,7 @@ import GridView from './components/GridView';
 import ChatBox from './components/ChatBox';
 import Lobby from './components/Lobby';
 import mpegts from 'mpegts.js';
-import { RtmpPlayerTile, localFlvUrl } from './components/RtmpPlayerTile';
+import { localFlvUrl } from './components/RtmpPlayerTile';
 export { RtmpPlayerTile, localFlvUrl } from './components/RtmpPlayerTile';
 
 // Effect for persistence
