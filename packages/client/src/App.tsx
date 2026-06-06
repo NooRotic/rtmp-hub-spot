@@ -210,11 +210,11 @@ function App() {
     }
   }, [wasKicked, isAdminMode]);
 
-  const refreshTelemetry = () => {
+  const refreshTelemetry = useCallback(() => {
     if (ipc) {
       ipc.send('telemetry-refresh');
     }
-  };
+  }, [ipc]);
 
   useEffect(() => {
     if (isElectron && ipc) {
@@ -339,7 +339,7 @@ function App() {
     }))
   ], [userStream, adminCamActive, localCameraActive, isElectron, userName, broadcastLabel, peers, syntheticFeeds]);
 
-  const adminData: AdminData = {
+  const adminData: AdminData = useMemo(() => ({
     socketStatus,
     isConnected,
     serverStatus: (serverStatus ?? null) as AdminData['serverStatus'],
@@ -361,7 +361,14 @@ function App() {
     previewOpen,
     setPreviewOpen,
     refreshTelemetry,
-  };
+  }), [
+    socketStatus, isConnected, serverStatus, bindings, relays, destinations,
+    ffmpegStatus, ffmpegStats, activeRecordings, recNow,
+    startRecording, stopRecording, openRecordingsDir,
+    broadcastBitrate, setBroadcastBitrate, broadcastPreset, setBroadcastPreset, hwAccel, setHwAccel, detectedEncoder,
+    addDestination, updateDestination, removeDestination, setBinding, removeBinding, refreshDestinations,
+    previewOpen, setPreviewOpen, refreshTelemetry,
+  ]);
 
   return (
     <AdminDataProvider value={adminData}>
