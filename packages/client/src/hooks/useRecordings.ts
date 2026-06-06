@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import type { IpcBridge } from './useElectronBridge';
 
 export interface ActiveRecording {
@@ -38,7 +38,7 @@ export function useRecordings(
     setActiveRecordings((prev) => prev.filter((r) => r.streamKey !== recordingStopped.streamKey));
   }, [recordingStopped]);
 
-  const startRecording = async (streamKey: string) => {
+  const startRecording = useCallback(async (streamKey: string) => {
     if (!ipc) return;
     try {
       const result = await ipc.invoke('start-recording', { streamKey });
@@ -50,18 +50,18 @@ export function useRecordings(
     } catch (e) {
       console.error('[REC] IPC error:', e);
     }
-  };
+  }, [ipc]);
 
-  const stopRecording = (streamKey: string) => {
+  const stopRecording = useCallback((streamKey: string) => {
     if (!ipc) return;
     ipc.send('stop-recording', { streamKey });
     setActiveRecordings((prev) => prev.filter((r) => r.streamKey !== streamKey));
-  };
+  }, [ipc]);
 
-  const openRecordingsDir = () => {
+  const openRecordingsDir = useCallback(() => {
     if (!ipc) return;
     ipc.send('open-recordings-dir');
-  };
+  }, [ipc]);
 
   return { activeRecordings, recNow, startRecording, stopRecording, openRecordingsDir };
 }
