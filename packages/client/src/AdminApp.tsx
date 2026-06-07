@@ -15,7 +15,6 @@ import { ServerStatusBar } from './admin/ServerStatusBar';
 import VideoFeed from './components/VideoFeed';
 import GridView from './components/GridView';
 import ChatBox from './components/ChatBox';
-import Lobby from './components/Lobby';
 import mpegts from 'mpegts.js';
 import { localFlvUrl } from './components/RtmpPlayerTile';
 import { feedKey } from './utils/streamKey';
@@ -83,10 +82,8 @@ function AdminApp() {
   // Grid management state
   const [gridMembers, setGridMembers] = useState<Set<string>>(new Set(['local']));
   const [gridAutoLayout, setGridAutoLayout] = useState(true);
-  const [lobbyDone, setLobbyDone] = useState(() => isElectron || isAdminMode); // Electron and admin monitor skip lobby
   const [spotlightId, setSpotlightId] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState<Set<string>>(new Set());
-  const pendingConnectRef = useRef(false);
 
   const toggleGridMember = (id: string) => {
     setGridMembers(prev => {
@@ -98,13 +95,12 @@ function AdminApp() {
   };
   const [selectedVideo, setSelectedVideo] = useState<string>(localStorage.getItem('hub-video-device') || '');
   const [selectedAudio, setSelectedAudio] = useState<string>(localStorage.getItem('hub-audio-device') || '');
-  const [userName, setUserName] = useState<string>(() => {
+  const [userName] = useState<string>(() => {
     if (isElectron) return 'Admin';
     if (isAdminMode) return 'Admin Monitor';
     return localStorage.getItem('hub-username') || '';
   });
   const [adminCamActive, setAdminCamActive] = useState<boolean>(false);
-  const [localCameraActive, setLocalCameraActive] = useState<boolean>(false);
   const [showGrid, setShowGrid] = useState<boolean>(isElectron); // Default ON for admin
   const [gridStream, setGridStream] = useState<MediaStream | null>(null);
   const [isGridShared, setIsGridShared] = useState<boolean>(false);
@@ -149,33 +145,16 @@ function AdminApp() {
   const cameraLabel = currentVideoDevice?.label || (isElectron ? 'Admin Hub' : 'Default Camera');
   const broadcastLabel = isGridShared ? 'Composite Grid' : cameraLabel;
 
-  const { serverStatus, isConnected, socketStatus, peers, userStream, cameraError, isVideoEnabled, setIsVideoEnabled, isAudioEnabled, setIsAudioEnabled, chatMessages, sendMessage, disconnect, connect, recordingStopped, wasKicked, kickUser, isLive } = useWebRTC('main-hub', {
-    videoId: (isElectron ? (adminCamActive ? selectedVideo : undefined) : (localCameraActive ? (selectedVideo || undefined) : undefined)),
-    audioId: (isElectron ? (adminCamActive ? selectedAudio : undefined) : (localCameraActive ? (selectedAudio || undefined) : undefined)),
+  const { serverStatus, isConnected, socketStatus, peers, userStream, cameraError, isVideoEnabled, setIsVideoEnabled, isAudioEnabled, setIsAudioEnabled, chatMessages, sendMessage, connect, recordingStopped, kickUser } = useWebRTC('main-hub', {
+    videoId: adminCamActive ? selectedVideo : undefined,
+    audioId: adminCamActive ? selectedAudio : undefined,
     userName: userName,
     cameraLabel: broadcastLabel,
-    captureVideo: isElectron ? adminCamActive : localCameraActive,
+    captureVideo: adminCamActive,
     overrideStream: isGridShared ? gridStream : null
   });
 
   const { activeRecordings, recNow, startRecording, stopRecording, openRecordingsDir } = useRecordings(ipc, recordingStopped);
-
-  const handleConnect = () => {
-    if (!userName.trim()) {
-      alert('Please enter your name before connecting.');
-      return;
-    }
-    localStorage.setItem('hub-username', userName);
-    connect();
-  };
-
-  const handleLobbyJoin = (name: string) => {
-    setUserName(name);
-    localStorage.setItem('hub-username', name);
-    setLocalCameraActive(true);
-    setLobbyDone(true);
-    pendingConnectRef.current = true;
-  };
 
   // Browser admin monitor auto-connect. Electron auto-connects via the useWebRTC hook itself.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -184,22 +163,6 @@ function AdminApp() {
       connect();
     }
   }, [isAdminMode, isElectron, isConnected]);
-
-  // Connect after lobby sets userName (state update is async, so we use a ref flag)
-  useEffect(() => {
-    if (pendingConnectRef.current && lobbyDone && userName) {
-      pendingConnectRef.current = false;
-      connect();
-    }
-  }, [userName, lobbyDone]);
-
-  // When kicked: reset non-admin browser clients to lobby state
-  useEffect(() => {
-    if (wasKicked && !isAdminMode) {
-      setLobbyDone(false);
-      setLocalCameraActive(false);
-    }
-  }, [wasKicked, isAdminMode]);
 
   const refreshTelemetry = useCallback(() => {
     if (ipc) {
@@ -215,8 +178,6 @@ function AdminApp() {
       return () => clearInterval(interval);
     }
   }, [isElectron, ipc]);
-
-
 
   /**
    * RTMP Synthetic Feed Effect
@@ -313,10 +274,10 @@ function AdminApp() {
   }, [peers, userStream, cameraLabel, gridMembers, syntheticFeeds]);
 
   const allStreams = useMemo(() => [
-    ...(userStream && (isElectron ? (adminCamActive || isGridShared) : localCameraActive) ? [{
+    ...(userStream && (adminCamActive || isGridShared) ? [{
       id: 'local',
       stream: userStream,
-      label: `${isElectron ? 'Admin Hub' : userName} - ${broadcastLabel}`
+      label: `Admin Hub - ${broadcastLabel}`
     }] : []),
     ...peers.filter(p => p.stream).map(p => ({
       id: p.id,
@@ -328,7 +289,7 @@ function AdminApp() {
       stream: f.stream as MediaStream,
       label: `[Feed] ${f.label}`
     }))
-  ], [userStream, adminCamActive, localCameraActive, isElectron, userName, broadcastLabel, peers, syntheticFeeds]);
+  ], [userStream, adminCamActive, isGridShared, broadcastLabel, peers, syntheticFeeds]);
 
   const adminData: AdminData = useMemo(() => ({
     socketStatus,
@@ -364,18 +325,6 @@ function AdminApp() {
   return (
     <AdminDataProvider value={adminData}>
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
-      {/* Pre-flight lobby for browser clients */}
-      {!isAdminMode && !lobbyDone && (
-        <Lobby
-          onJoin={handleLobbyJoin}
-          initialName={userName}
-          wasKicked={wasKicked}
-        />
-      )}
-      {/* "You are live" banner for connected clients */}
-      {!isElectron && !isAdminMode && isLive && (
-        <div className="live-banner">◉ YOU ARE LIVE</div>
-      )}
       {/* Draggable Title Bar (Electron Only) */}
       {isElectron && (
         <div className="app-title-bar ntd">
@@ -642,7 +591,7 @@ function AdminApp() {
                     </button>
                     <span style={{ fontSize: '10px', color: 'var(--ntd-text-dim)' }}> (Visible to all connected clients)</span>
                   </div>
-                ) : isAdminMode ? (
+                ) : (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '4px 0' }}>
                     <span style={{ background: 'var(--ntd-navy-b)', color: '#fff', padding: '3px 10px', fontFamily: 'monospace', fontSize: '10px', letterSpacing: '1px' }}>
                       ◈ MONITOR MODE
@@ -650,33 +599,6 @@ function AdminApp() {
                     <span style={{ fontSize: '10px', color: 'var(--ntd-text-dim)' }}>
                       Connected as Admin Monitor. Broadcast controls require the Electron app.
                     </span>
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-                    <input
-                      className="ntd-field"
-                      type="text"
-                      value={userName}
-                      onChange={(e) => setUserName(e.target.value)}
-                      placeholder="Required: Enter your name"
-                      disabled={isConnected}
-                      style={{ border: !userName.trim() ? '2px solid var(--ntd-error)' : 'none', flex: '1 1 140px', minWidth: '140px' }}
-                    />
-                    <button
-                      className="ntd-btn"
-                      onClick={() => setLocalCameraActive(!localCameraActive)}
-                      style={{ padding: '6px 16px', backgroundColor: localCameraActive ? 'var(--ntd-error)' : 'var(--ntd-go)', flex: '1 1 auto' }}
-                    >
-                      {localCameraActive ? 'STOP CAMERA' : 'START CAMERA'}
-                    </button>
-                    <button
-                      className="ntd-btn"
-                      onClick={isConnected ? disconnect : handleConnect}
-                      style={{ padding: '6px 16px', backgroundColor: isConnected ? 'var(--ntd-error)' : 'var(--ntd-go)', flex: '1 1 auto' }}
-                      disabled={!userName.trim()}
-                    >
-                      {isConnected ? 'DISCONNECT' : 'CONNECT TO HUB'}
-                    </button>
                   </div>
                 )}
               </div>
@@ -698,7 +620,7 @@ function AdminApp() {
                 {userStream && (
                   <VideoFeed
                     stream={userStream}
-                    label={`${isElectron ? 'Admin Hub' : userName} (Self)`}
+                    label="Admin Hub (Self)"
                     isLocal
                     isVideoEnabled={isVideoEnabled}
                     setIsVideoEnabled={setIsVideoEnabled}
@@ -730,7 +652,6 @@ function AdminApp() {
                 />
               )}
 
-              {!isElectron && <ChatBox messages={chatMessages} onSendMessage={sendMessage} />}
             </div>
           </div>
         </div>
