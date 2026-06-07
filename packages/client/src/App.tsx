@@ -160,7 +160,7 @@ function App() {
   const cameraLabel = currentVideoDevice?.label || (isElectron ? 'Admin Hub' : 'Default Camera');
   const broadcastLabel = isGridShared ? 'Composite Grid' : cameraLabel;
 
-  const { serverStatus, isConnected, socketStatus, peers, userStream, isVideoEnabled, setIsVideoEnabled, isAudioEnabled, setIsAudioEnabled, chatMessages, sendMessage, disconnect, connect, recordingStopped, wasKicked, kickUser, isLive } = useWebRTC('main-hub', {
+  const { serverStatus, isConnected, socketStatus, peers, userStream, cameraError, isVideoEnabled, setIsVideoEnabled, isAudioEnabled, setIsAudioEnabled, chatMessages, sendMessage, disconnect, connect, recordingStopped, wasKicked, kickUser, isLive } = useWebRTC('main-hub', {
     videoId: (isElectron ? (adminCamActive ? selectedVideo : undefined) : (localCameraActive ? (selectedVideo || undefined) : undefined)),
     audioId: (isElectron ? (adminCamActive ? selectedAudio : undefined) : (localCameraActive ? (selectedAudio || undefined) : undefined)),
     userName: userName,
@@ -693,8 +693,21 @@ function App() {
               </div>
 
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+                {cameraError && !userStream && (
+                  <div role="alert" style={{
+                    flex: '1 1 100%', display: 'flex', alignItems: 'center', gap: '14px',
+                    padding: '16px 18px', background: 'var(--ntd-face-2)',
+                    border: '2px solid var(--ntd-error)', color: 'var(--ntd-text)',
+                  }}>
+                    <span aria-hidden style={{ fontSize: '30px', lineHeight: 1, color: 'var(--ntd-error)' }}>⚠</span>
+                    <div>
+                      <div style={{ fontWeight: 'bold', color: 'var(--ntd-error)', letterSpacing: '1px' }}>CAMERA UNAVAILABLE</div>
+                      <div style={{ fontSize: '12px', marginTop: '3px' }}>{cameraError}</div>
+                    </div>
+                  </div>
+                )}
                 {userStream && (
-                  <VideoFeed 
+                  <VideoFeed
                     stream={userStream} 
                     label={`${isElectron ? 'Admin Hub' : userName} (Self)`} 
                     isLocal 
