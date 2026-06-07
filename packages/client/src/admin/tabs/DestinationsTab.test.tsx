@@ -20,6 +20,7 @@ function base(over: Partial<AdminData> = {}): AdminData {
     recordings: { active: [], now: 0, start: async () => {}, stop: () => {}, openDir: () => {} },
     settings: { bitrate: '2500k', setBitrate: () => {}, preset: 'ultrafast', setPreset: () => {}, hwAccel: 'none', setHwAccel: () => {}, detectedEncoder: null },
     destinationActions: { add: vi.fn(async () => {}), update: vi.fn(async () => {}), remove: vi.fn(async () => {}), setBinding: vi.fn(async () => {}), removeBinding: vi.fn(async () => {}), refresh: async () => {} },
+    roomAccess: { locked: false, setPin: async () => {}, clearPin: async () => {} },
     previewOpen: new Set(), setPreviewOpen: () => {}, refreshTelemetry: () => {},
     ...over,
   };

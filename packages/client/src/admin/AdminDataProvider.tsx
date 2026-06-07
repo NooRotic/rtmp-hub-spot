@@ -55,6 +55,11 @@ export interface AdminData {
     removeBinding: (sourceKey: string, destinationId: string) => Promise<void>;
     refresh: () => Promise<void>;
   };
+  roomAccess: {
+    locked: boolean;
+    setPin: (pin: string) => Promise<void>;
+    clearPin: () => Promise<void>;
+  };
   previewOpen: Set<string>;
   setPreviewOpen: Dispatch<SetStateAction<Set<string>>>;
   refreshTelemetry: () => void;

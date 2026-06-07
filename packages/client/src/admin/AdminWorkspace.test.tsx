@@ -12,6 +12,7 @@ const data = (over: Partial<AdminData> = {}): AdminData => ({
   recordings: { active: [], now: 0, start: async () => {}, stop: () => {}, openDir: () => {} },
   settings: { bitrate: '2500k', setBitrate: () => {}, preset: 'ultrafast', setPreset: () => {}, hwAccel: 'none', setHwAccel: () => {}, detectedEncoder: null },
   destinationActions: { add: async () => {}, update: async () => {}, remove: async () => {}, setBinding: async () => {}, removeBinding: async () => {}, refresh: async () => {} },
+  roomAccess: { locked: false, setPin: async () => {}, clearPin: async () => {} },
   previewOpen: new Set(), setPreviewOpen: () => {}, refreshTelemetry: () => {},
   ...over,
 });

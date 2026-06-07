@@ -8,6 +8,7 @@ import { useRecordings } from './hooks/useRecordings';
 import { useBroadcastSettings } from './hooks/useBroadcastSettings';
 import { useRelays } from './hooks/useRelays';
 import { useDestinations } from './hooks/useDestinations';
+import { useRoomPin } from './hooks/useRoomPin';
 import { deriveSources } from './admin/sources';
 import { AdminDataProvider, type AdminData } from './admin/AdminDataProvider';
 import { AdminWorkspace } from './admin/AdminWorkspace';
@@ -109,6 +110,8 @@ function AdminApp() {
     hwAccel, setHwAccel,
     detectedEncoder,
   } = useBroadcastSettings(ipc);
+
+  const { locked: roomLocked, setPin: setRoomPin, clearPin: clearRoomPin } = useRoomPin(ipc);
 
   const { relays } = useRelays(ipc);
   const {
@@ -308,6 +311,7 @@ function AdminApp() {
       add: addDestination, update: updateDestination, remove: removeDestination,
       setBinding, removeBinding, refresh: refreshDestinations,
     },
+    roomAccess: { locked: roomLocked, setPin: setRoomPin, clearPin: clearRoomPin },
     previewOpen,
     setPreviewOpen,
     refreshTelemetry,
@@ -317,6 +321,7 @@ function AdminApp() {
     startRecording, stopRecording, openRecordingsDir,
     broadcastBitrate, setBroadcastBitrate, broadcastPreset, setBroadcastPreset, hwAccel, setHwAccel, detectedEncoder,
     addDestination, updateDestination, removeDestination, setBinding, removeBinding, refreshDestinations,
+    roomLocked, setRoomPin, clearRoomPin,
     previewOpen, setPreviewOpen, refreshTelemetry,
   ]);
 

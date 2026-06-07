@@ -5,7 +5,7 @@ import { clientJoinUrl } from './clientUrl';
 
 /** L1 server status strip (spec §4). Always visible; consumes useAdminData. */
 export function ServerStatusBar() {
-  const { socketStatus, isConnected, serverStatus, sources, relays } = useAdminData();
+  const { socketStatus, isConnected, serverStatus, sources, relays, roomAccess } = useAdminData();
   const { liveSources, activeDestinations } = serverRollup(sources, relays);
 
   const signalState = isConnected ? 'live' : socketStatus === 'connecting' ? 'connecting' : 'error';
@@ -24,6 +24,9 @@ export function ServerStatusBar() {
         <span className="ntd-statusbar__item">
           <span className="ntd-statusbar__label">Join</span>
           <code className="ntd-statusbar__join">{joinUrl}</code>
+          <span title={roomAccess.locked ? 'Room locked — PIN required' : 'Room open'}>
+            {roomAccess.locked ? '🔒' : '🔓'}
+          </span>
         </span>
       )}
       <span className="ntd-statusbar__item">

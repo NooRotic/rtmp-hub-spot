@@ -1,5 +1,7 @@
 import type { CSSProperties } from 'react';
+import { useRef } from 'react';
 import { useAdminData } from '../AdminDataProvider';
+import { NTButton } from '../../ui/NTButton';
 
 const BITRATES = [
   { value: '1500k', label: '1500k (Optimized)' },
@@ -25,8 +27,9 @@ const sel: CSSProperties = { width: '100%' };
 /** Dark-NT Broadcast Settings (spec §4 Settings tab). Behavior mirrors the legacy
  *  section; styling refined live. Option values are preserved exactly. */
 export function SettingsTab() {
-  const { settings } = useAdminData();
+  const { settings, roomAccess } = useAdminData();
   const { bitrate, setBitrate, preset, setPreset, hwAccel, setHwAccel, detectedEncoder } = settings;
+  const pinRef = useRef<HTMLInputElement>(null);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -67,6 +70,38 @@ export function SettingsTab() {
           <div style={{ color: 'var(--ntd-warn)', fontSize: 11 }}>⚠ Override active. Auto-detected: {detectedEncoder.bestLabel}</div>
         )}
       </label>
+
+      <div style={{ padding: 8, background: 'var(--ntd-face-2)', border: '1px solid var(--ntd-sh)' }}>
+        <strong>Room Access</strong>
+        <div style={{ marginTop: 6, marginBottom: 6, fontSize: 12, color: 'var(--ntd-text-dim)' }}>
+          Participants must enter this PIN to join. The host (this app) is always exempt.
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <span title={roomAccess.locked ? 'Room locked — PIN required' : 'Room open'}>
+            {roomAccess.locked ? '🔒' : '🔓'}
+          </span>
+          <span style={{ fontSize: 12 }}>{roomAccess.locked ? 'Locked — PIN required' : 'Open — no PIN'}</span>
+        </div>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <input
+            ref={pinRef}
+            className="ntd-field"
+            data-field="room-pin-set"
+            type="password"
+            placeholder="Enter PIN"
+            style={{ flex: 1 }}
+          />
+          <NTButton
+            go
+            onClick={() => roomAccess.setPin(pinRef.current?.value ?? '')}
+          >
+            Set PIN
+          </NTButton>
+          <NTButton onClick={() => roomAccess.clearPin()}>
+            Clear
+          </NTButton>
+        </div>
+      </div>
 
       <div style={{ marginTop: 12, padding: 8, background: 'var(--ntd-face-2)', border: '1px solid var(--ntd-sh)', opacity: 0.85 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
