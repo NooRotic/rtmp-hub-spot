@@ -95,9 +95,8 @@ export function SettingsTab() {
             go
             onClick={() => {
               const v = (pinRef.current?.value ?? '').trim();
-              if (!v) return; // empty = use Clear, not Set
+              if (!v) return; // empty = use Clear, not Set (Clear button removes the PIN)
               roomAccess.setPin(v);
-              if (pinRef.current) pinRef.current.value = ''; // don't leave the PIN sitting in the field
             }}
           >
             Set PIN
