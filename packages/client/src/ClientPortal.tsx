@@ -101,15 +101,18 @@ export function ClientPortal() {
   }, [wasKicked]);
 
   // When join is denied (wrong PIN, cooldown, etc.): return to lobby with reason.
-  // Also watches lobbyDone so it fires when the user transitions to in-session
-  // while joinDenied is already set (e.g. server responded synchronously).
+  // Keyed on [joinDenied] ONLY: each denial is a fresh object reference, so the
+  // effect fires exactly once per denial. Crucially, a RETRY (handleLobbyJoin sets
+  // lobbyDone=true while joinDenied still holds the stale object) must NOT re-fire
+  // this — joinDenied is unchanged by reference, so the user can proceed and connect.
+  // joinDenied is cleared (null) by useWebRTC on the next 'connect'.
   useEffect(() => {
-    if (joinDenied && lobbyDone) {
+    if (joinDenied) {
       setDeniedReason(joinDenied.reason);
       setLobbyDone(false);
       setLocalCameraActive(false);
     }
-  }, [joinDenied, lobbyDone]);
+  }, [joinDenied]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Pre-flight lobby
   if (!lobbyDone) {

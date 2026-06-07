@@ -35,13 +35,13 @@ describe('ClientPortal', () => {
     expect(screen.getByText(/start camera|stop camera/i)).toBeTruthy();
   });
 
-  it('returns to the lobby with an error when the join is denied', () => {
+  it('shows the lobby with a denial error when useWebRTC reports joinDenied', () => {
+    // Simulate the denial lifecycle: useWebRTC reports joinDenied at mount.
+    // The effect (keyed on [joinDenied]) fires, sets deniedReason, and keeps the
+    // user on the lobby — never entering the in-session view. No JOIN click needed.
     wrtc.joinDenied = { reason: 'pin' };
     render(<ClientPortal />);
-    const name = document.querySelector('input') as HTMLInputElement;
-    fireEvent.change(name, { target: { value: 'Tester' } });
-    fireEvent.click(screen.getByRole('button', { name: /join hub/i }));
-    expect(screen.queryByText(/start camera|stop camera/i)).toBeNull(); // not in-session
+    expect(screen.queryByText(/start camera|stop camera/i)).toBeNull(); // never enters session
     expect(screen.getByText(/requires a valid pin|wrong pin|invalid pin/i)).toBeTruthy();
     wrtc.joinDenied = null; // reset for other tests
   });
