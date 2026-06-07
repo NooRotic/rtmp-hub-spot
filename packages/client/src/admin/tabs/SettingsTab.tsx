@@ -93,7 +93,12 @@ export function SettingsTab() {
           />
           <NTButton
             go
-            onClick={() => roomAccess.setPin(pinRef.current?.value ?? '')}
+            onClick={() => {
+              const v = (pinRef.current?.value ?? '').trim();
+              if (!v) return; // empty = use Clear, not Set
+              roomAccess.setPin(v);
+              if (pinRef.current) pinRef.current.value = ''; // don't leave the PIN sitting in the field
+            }}
           >
             Set PIN
           </NTButton>

@@ -39,13 +39,5 @@ export function useRoomPin(ipc: IpcBridge | null) {
     setLocked(false);
   }, [ipc]);
 
-  const refresh = useCallback(async () => {
-    if (!ipc) return;
-    try {
-      const r = await ipc.invoke('get-room-pin');
-      if (r) setLocked(!!r.locked);
-    } catch (_) {}
-  }, [ipc]);
-
-  return { locked, setPin, clearPin, refresh };
+  return { locked, setPin, clearPin };
 }
