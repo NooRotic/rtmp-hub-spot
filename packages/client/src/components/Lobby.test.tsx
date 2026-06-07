@@ -29,7 +29,7 @@ describe('Lobby', () => {
     render(<Lobby onJoin={onJoin} />);
     fireEvent.change(screen.getByPlaceholderText(/enter your name/i) as HTMLInputElement, { target: { value: '  Bob  ' } });
     fireEvent.click(screen.getByRole('button', { name: /join hub/i }));
-    expect(onJoin).toHaveBeenCalledWith('Bob');
+    expect(onJoin).toHaveBeenCalledWith('Bob', '');
   });
 
   it('calls onJoin when Enter is pressed in the name field', () => {
@@ -38,7 +38,23 @@ describe('Lobby', () => {
     const input = screen.getByPlaceholderText(/enter your name/i) as HTMLInputElement;
     fireEvent.change(input, { target: { value: 'Carol' } });
     fireEvent.keyDown(input, { key: 'Enter' });
-    expect(onJoin).toHaveBeenCalledWith('Carol');
+    expect(onJoin).toHaveBeenCalledWith('Carol', '');
+  });
+
+  it('passes the entered name AND pin to onJoin', () => {
+    const onJoin = vi.fn();
+    const { container } = render(<Lobby onJoin={onJoin} initialName="" />);
+    const name = container.querySelector('input') as HTMLInputElement; // first input = name
+    const pin = container.querySelector('input[data-field="room-pin"]') as HTMLInputElement;
+    fireEvent.change(name, { target: { value: 'Ann' } });
+    fireEvent.change(pin, { target: { value: '4321' } });
+    fireEvent.click(screen.getByRole('button', { name: /join hub/i }));
+    expect(onJoin).toHaveBeenCalledWith('Ann', '4321');
+  });
+
+  it('shows a denial error when deniedReason is set', () => {
+    render(<Lobby onJoin={() => {}} initialName="Ann" deniedReason="pin" />);
+    expect(screen.getByText(/requires a valid pin|wrong pin|invalid pin/i)).toBeTruthy();
   });
 
   it('does not call onJoin when Enter is pressed with an empty name', () => {
