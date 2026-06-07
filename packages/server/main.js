@@ -8,6 +8,7 @@ const { createReconnectionSupervisor } = require('./reconnection-supervisor');
 const { createBroadcastOrchestrator } = require('./broadcast-orchestrator');
 const destinationStore = require('./destinationStore');
 const { extractSessionData } = require('./nms-session');
+const { createRoomGate } = require('./room-pin');
 const path = require('path');
 const os = require('os');
 const https = require('https');
@@ -20,6 +21,22 @@ const ffmpeg = require('fluent-ffmpeg');
 const ffmpegStatic = require('ffmpeg-static');
 const fs = require('fs');
 require('dotenv').config();
+
+// ─── Room PIN Gate ────────────────────────────────────────────────────────────
+const roomGate = createRoomGate();
+const roomConfigPath = () => path.join(app.getPath('userData'), 'room-config.json');
+
+function loadRoomPin() {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(roomConfigPath(), 'utf8'));
+    if (cfg && typeof cfg.roomPin === 'string') roomGate.setPin(cfg.roomPin);
+  } catch (_) { /* no config yet = open hub */ }
+}
+
+function saveRoomPin(pin) {
+  try { fs.writeFileSync(roomConfigPath(), JSON.stringify({ roomPin: pin || '' }), 'utf8'); }
+  catch (e) { console.error('[RoomPin] persist failed:', e); }
+}
 
 ffmpeg.setFfmpegPath(ffmpegStatic);
 
@@ -234,6 +251,7 @@ const rtmpPublishers = new Map();
 console.log('[SERVER] Starting initialization...');
 initializeServer().then(({ nms, server, io }) => {
   console.log('[SERVER] Initialization successful, attaching listeners...');
+  loadRoomPin();
   const rtmpSessions = new Map();   // id -> { ip, path, startTime }  — RTMP players
 
   // Resolve session data via the version-robust, unit-tested helper (nms-session.js).
@@ -360,7 +378,14 @@ initializeServer().then(({ nms, server, io }) => {
   io.on('connection', (socket) => {
     console.log('[Signaling] New socket connection:', socket.id);
     
-    socket.on('join-room', ({ roomId, userName }) => {
+    socket.on('join-room', ({ roomId, userName, pin }) => {
+      const verdict = roomGate.check(socket.handshake.address, pin);
+      if (!verdict.allowed) {
+        socket.emit('join-denied', { reason: verdict.reason });
+        if (verdict.lockout) socket.disconnect(true);
+        console.log(`[Signaling] join denied (${verdict.reason}) for ${socket.handshake.address}`);
+        return;
+      }
       socket.join(roomId);
       users[socket.id] = { name: userName || `User ${socket.id.slice(0, 4)}`, roomId };
       
@@ -433,6 +458,15 @@ initializeServer().then(({ nms, server, io }) => {
   ipcMain.on('telemetry-refresh', () => {
     broadcastStatus();
   });
+
+  ipcMain.on('set-room-pin', (event, { pin } = {}) => {
+    const next = (pin || '').trim();
+    roomGate.setPin(next);
+    saveRoomPin(next);
+    console.log(`[RoomPin] ${next ? 'locked' : 'open'}`);
+  });
+
+  ipcMain.handle('get-room-pin', () => ({ locked: roomGate.isLocked() }));
 
   server.listen(SIGNALING_PORT, BIND_IP, () => {
     console.log(`Signaling server listening on HTTPS ${BIND_IP}:${SIGNALING_PORT}`);
