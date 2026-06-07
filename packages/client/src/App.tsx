@@ -8,7 +8,7 @@ export { RtmpPlayerTile, localFlvUrl } from './components/RtmpPlayerTile';
 /**
  * Determines whether the current session is an admin/host session.
  * True when running inside Electron OR when the browser URL carries ?role=admin.
- * Mirrors AdminApp's `isAdminMode` logic exactly.
+ * Uses the same criteria as AdminApp's internal `isAdminMode`.
  */
 function isAdminRole(): boolean {
   if (isElectron) return true;

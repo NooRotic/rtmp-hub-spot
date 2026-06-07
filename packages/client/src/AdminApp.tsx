@@ -54,10 +54,8 @@ function useResizableSidebar(initialWidth: number) {
 }
 
 /**
- * The primary WebRTC Hub application component.
- *
- * Functions both as the Host/Admin dashboard (when running in Electron) and
- * as the remote Participant view (when running in a browser).
+ * The Host/Admin dashboard — either Electron (full broadcast console) or a
+ * browser with ?role=admin (monitor-only). Participants are handled by ClientPortal.
  *
  * Responsibilities:
  * - Local hardware state (Camera, Mic)
@@ -546,7 +544,7 @@ function AdminApp() {
         <div className="ntd" style={{ flex: 1, padding: '20px', overflowY: 'auto' }}>
           <div className="window ntd">
             <div className="window-title">
-              <span>{isElectron ? 'Admin Video Hub' : 'Client Participant Portal'}</span>
+              <span>{isElectron ? 'Admin Video Hub' : 'Admin Monitor'}</span>
             </div>
             <div className="window-content">
               <div className="inset-field" style={{ marginBottom: '15px' }}>
