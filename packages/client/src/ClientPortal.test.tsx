@@ -28,8 +28,8 @@ describe('ClientPortal', () => {
     // Set the name in the Lobby's input and click JOIN HUB
     const nameInput = document.querySelector('input') as HTMLInputElement;
     fireEvent.change(nameInput, { target: { value: 'Tester' } });
-    // JOIN HUB button — getByRole('button') finds the first button which is the lobby join btn
-    fireEvent.click(screen.getByRole('button'));
+    // JOIN HUB button — name-scoped so it stays correct if Lobby gains more buttons
+    fireEvent.click(screen.getByRole('button', { name: /join hub/i }));
     // After joining, in-session controls appear including START CAMERA / STOP CAMERA
     expect(screen.getByText(/start camera|stop camera/i)).toBeTruthy();
   });
