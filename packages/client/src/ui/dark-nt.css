@@ -191,3 +191,12 @@
    (no light-grey seam around the darkened sidebar/main surfaces). */
 .app-title-bar.ntd { background: var(--ntd-face); color: var(--ntd-text); border-bottom: 2px solid var(--ntd-sh); }
 .divider.ntd { background: var(--ntd-face-2); }
+
+/* ClientPortal — mobile-first participant surface. */
+.ntd-portal { min-height: 100vh; background: var(--ntd-face); color: var(--ntd-text); display: flex; flex-direction: column; gap: 12px; padding: 16px; box-sizing: border-box; max-width: 720px; margin: 0 auto; }
+.ntd-portal__preview { width: 100%; background: #000; border: 2px solid var(--ntd-sh); aspect-ratio: 16/9; overflow: hidden; }
+.ntd-portal__bar { display: flex; flex-wrap: wrap; gap: 10px; }
+.ntd-portal__bar .ntd-btn { flex: 1 1 auto; min-height: 44px; font-size: 14px; }
+.ntd-portal__field { min-height: 44px; font-size: 16px; } /* 16px avoids iOS zoom-on-focus */
+.ntd-portal__chat { margin-top: auto; }
+@media (max-width: 520px) { .ntd-portal { padding: 10px; gap: 10px; } }
