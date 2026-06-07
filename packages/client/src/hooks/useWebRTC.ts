@@ -2,9 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import io from 'socket.io-client';
 import Peer from 'simple-peer';
 
-export const isElectron = typeof window !== 'undefined' && 
-                          (navigator.userAgent.toLowerCase().indexOf(' electron/') > -1 || 
-                           (window as any).process?.versions?.electron);
+import { isElectron } from './useElectronBridge';
+export { isElectron };
 
 /**
  * Hook to manage Socket.io signaling and Simple-Peer connections for a Full Mesh WebRTC network.
@@ -27,6 +26,7 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
   const [isConnected, setIsConnected] = useState(false);
   const [socketStatus, setSocketStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
   const [userStream, setUserStream] = useState<MediaStream | null>(null);
+  const [cameraError, setCameraError] = useState<string | null>(null);
   const [chatMessages, setChatMessages] = useState<{ senderName: string, message: string, timestamp: number }[]>([]);
   const [recordingStopped, setRecordingStopped] = useState<{ streamKey: string; reason: string } | null>(null);
   const [wasKicked, setWasKicked] = useState(false);
@@ -378,6 +378,7 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
     const shouldCapture = captureVideo || (!!videoId || !!audioId);
     
     if (!shouldCapture) {
+      setCameraError(null); // camera intentionally off — clear any prior error
       if (userStream && !overrideStream) {
         userStream.getTracks().forEach(t => t.stop());
         setUserStream(null);
@@ -393,13 +394,17 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
 
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       console.warn('[useWebRTC] getUserMedia not available (possibly insecure origin)');
-      addLocalStatus('Camera access blocked. Please ensure you have accepted the HTTPS certificate warning.');
+      const blocked = 'Camera access blocked. Accept the HTTPS certificate warning and reload.';
+      addLocalStatus(blocked);
+      setCameraError(blocked);
       return;
     }
 
     addLocalStatus('Requesting camera/mic access...');
+    setCameraError(null); // clear before a fresh attempt
     navigator.mediaDevices.getUserMedia(constraints).then((stream) => {
       addLocalStatus('Camera access granted.');
+      setCameraError(null);
       cameraStreamRef.current = stream;
       
       // If we already have peers connected, add this new stream to them
@@ -414,6 +419,13 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
     }).catch(err => {
       console.error('Error getting user media:', err);
       addLocalStatus(`Camera Error: ${err.name} - ${err.message}`);
+      const friendly =
+        err?.name === 'NotReadableError' ? 'Camera is in use by another app (a second app window, OBS, Teams, Camera…). Close it and try again.' :
+        err?.name === 'NotAllowedError' ? 'Camera/mic permission denied. Allow access in the browser/OS, then try again.' :
+        err?.name === 'NotFoundError' ? 'No camera/mic found. Check the device is connected.' :
+        err?.name === 'OverconstrainedError' ? 'The selected camera/mic is unavailable. Pick a different device above.' :
+        `${err?.name || 'Camera error'}: ${err?.message || 'Could not access the camera.'}`;
+      setCameraError(friendly);
     });
   }, [videoId, audioId, captureVideo]);
 
@@ -521,6 +533,7 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
   return {
     peers,
     userStream,
+    cameraError,
     connect,
     disconnect,
     isConnected,

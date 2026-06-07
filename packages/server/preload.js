@@ -38,6 +38,7 @@ const INVOKE_CHANNELS = new Set([
   'destinations:update',
   'bindings:list',
   'bindings:set',
+  'bindings:remove',
 ]);
 
 // Main -> renderer events the renderer subscribes to.

@@ -11,24 +11,37 @@ const makeIpc = () => {
   };
 };
 
+const YT = { id: 'yt', name: 'YouTube', url: 'rtmp://x', streamKey: 'k', enabled: true };
+
+function setup({ destinations = [YT], bindings = [] } = {}) {
+  const ipc = makeIpc();
+  const store = {
+    loadDestinations: vi.fn(() => destinations),
+    addDestination: vi.fn(),
+    removeDestination: vi.fn(),
+    updateDestination: vi.fn(),
+    loadBindings: vi.fn(() => bindings),
+    setBinding: vi.fn(),
+    removeBinding: vi.fn(),
+    removeBindingsForDestination: vi.fn(),
+  };
+  const orchestrator = {
+    onBindingAdded: vi.fn(),
+    onBindingRemoved: vi.fn(),
+    onDestinationRemoved: vi.fn(),
+  };
+  registerDestinationHandlers(ipc, { store, orchestrator });
+  return { ipc, store, orchestrator };
+}
+
 describe('registerDestinationHandlers', () => {
-  let ipc;
-  let store;
+  let ctx;
+  beforeEach(() => { ctx = setup(); });
 
-  beforeEach(() => {
-    ipc = makeIpc();
-    store = {
-      loadDestinations: vi.fn(() => [{ id: '1' }]),
-      addDestination: vi.fn(),
-      removeDestination: vi.fn(),
-      updateDestination: vi.fn(),
-    };
-    registerDestinationHandlers(ipc, store);
-  });
-
-  it('registers all destination CRUD and bindings channels', () => {
-    expect(Object.keys(ipc.handlers).sort()).toEqual([
+  it('registers all destination + bindings channels', () => {
+    expect(Object.keys(ctx.ipc.handlers).sort()).toEqual([
       'bindings:list',
+      'bindings:remove',
       'bindings:set',
       'destinations:add',
       'destinations:list',
@@ -38,47 +51,70 @@ describe('registerDestinationHandlers', () => {
   });
 
   it('list returns the stored destinations', () => {
-    expect(ipc.invoke('destinations:list')).toEqual([{ id: '1' }]);
-    expect(store.loadDestinations).toHaveBeenCalledOnce();
+    expect(ctx.ipc.invoke('destinations:list')).toEqual([YT]);
+    expect(ctx.store.loadDestinations).toHaveBeenCalled();
   });
 
-  it('add forwards the destination to the store and acknowledges', () => {
-    const dest = { id: '2', name: 'X' };
-    expect(ipc.invoke('destinations:add', dest)).toBe(true);
-    expect(store.addDestination).toHaveBeenCalledWith(dest);
+  it('add / update forward to the store and acknowledge', () => {
+    const d = { id: '2', name: 'X' };
+    expect(ctx.ipc.invoke('destinations:add', d)).toBe(true);
+    expect(ctx.store.addDestination).toHaveBeenCalledWith(d);
+    expect(ctx.ipc.invoke('destinations:update', d)).toBe(true);
+    expect(ctx.store.updateDestination).toHaveBeenCalledWith(d);
   });
 
-  it('remove forwards the id to the store and acknowledges', () => {
-    expect(ipc.invoke('destinations:remove', '2')).toBe(true);
-    expect(store.removeDestination).toHaveBeenCalledWith('2');
-  });
-
-  it('update forwards the destination to the store and acknowledges', () => {
-    const dest = { id: '2', name: 'Y' };
-    expect(ipc.invoke('destinations:update', dest)).toBe(true);
-    expect(store.updateDestination).toHaveBeenCalledWith(dest);
+  it('bindings:list returns stored bindings', () => {
+    const c = setup({ bindings: [{ sourceKey: 'grid', destinationId: 'yt', active: true }] });
+    expect(c.ipc.invoke('bindings:list')).toEqual([
+      { sourceKey: 'grid', destinationId: 'yt', active: true },
+    ]);
   });
 });
 
-describe('bindings handlers', () => {
-  it('wires bindings:list and bindings:set to the store', async () => {
-    const deps = {
-      loadDestinations: vi.fn(),
-      addDestination: vi.fn(),
-      removeDestination: vi.fn(),
-      updateDestination: vi.fn(),
-      loadBindings: vi.fn(() => [{ sourceKey: 'grid', destinationId: 'yt', active: true }]),
-      setBinding: vi.fn(),
-    };
-    const ipc = makeIpc();
-    registerDestinationHandlers(ipc, deps);
+describe('bindings:set routing (G1/G2)', () => {
+  it('an ACTIVE binding persists then calls onBindingAdded with the resolved destination', () => {
+    const { ipc, store, orchestrator } = setup({ destinations: [YT] });
+    const binding = { sourceKey: 'grid', destinationId: 'yt', active: true };
+    expect(ipc.invoke('bindings:set', binding)).toBe(true);
+    expect(store.setBinding).toHaveBeenCalledWith(binding);
+    expect(orchestrator.onBindingAdded).toHaveBeenCalledWith('grid', YT);
+    expect(orchestrator.onBindingRemoved).not.toHaveBeenCalled();
+  });
 
-    expect(await ipc.invoke('bindings:list')).toEqual([
-      { sourceKey: 'grid', destinationId: 'yt', active: true },
-    ]);
-    await ipc.invoke('bindings:set', { sourceKey: 'grid', destinationId: 'kick', active: true });
-    expect(deps.setBinding).toHaveBeenCalledWith({
-      sourceKey: 'grid', destinationId: 'kick', active: true,
-    });
+  it('an INACTIVE binding persists then calls onBindingRemoved (stops the relay)', () => {
+    const { ipc, store, orchestrator } = setup({ destinations: [YT] });
+    const binding = { sourceKey: 'grid', destinationId: 'yt', active: false };
+    expect(ipc.invoke('bindings:set', binding)).toBe(true);
+    expect(store.setBinding).toHaveBeenCalledWith(binding);
+    expect(orchestrator.onBindingRemoved).toHaveBeenCalledWith('grid', 'yt');
+    expect(orchestrator.onBindingAdded).not.toHaveBeenCalled();
+  });
+
+  it('skips both orchestrator paths when an active binding references a missing destination', () => {
+    const { ipc, store, orchestrator } = setup({ destinations: [] }); // YT not present
+    const binding = { sourceKey: 'grid', destinationId: 'yt', active: true };
+    expect(ipc.invoke('bindings:set', binding)).toBe(true);
+    expect(store.setBinding).toHaveBeenCalledWith(binding); // still persisted
+    expect(orchestrator.onBindingAdded).not.toHaveBeenCalled();
+    expect(orchestrator.onBindingRemoved).not.toHaveBeenCalled();
+  });
+});
+
+describe('bindings:remove routing (G2)', () => {
+  it('removes the binding then stops the relay', () => {
+    const { ipc, store, orchestrator } = setup();
+    expect(ipc.invoke('bindings:remove', { sourceKey: 'grid', destinationId: 'yt' })).toBe(true);
+    expect(store.removeBinding).toHaveBeenCalledWith('grid', 'yt');
+    expect(orchestrator.onBindingRemoved).toHaveBeenCalledWith('grid', 'yt');
+  });
+});
+
+describe('destinations:remove cascade (G3)', () => {
+  it('removes the destination, cascades its bindings, and stops its relays', () => {
+    const { ipc, store, orchestrator } = setup();
+    expect(ipc.invoke('destinations:remove', 'yt')).toBe(true);
+    expect(store.removeDestination).toHaveBeenCalledWith('yt');
+    expect(store.removeBindingsForDestination).toHaveBeenCalledWith('yt');
+    expect(orchestrator.onDestinationRemoved).toHaveBeenCalledWith('yt');
   });
 });

@@ -20,11 +20,28 @@ export type Platform =
   | 'facebook'
   | 'custom';
 
+/**
+ * PRO (later): a per-destination brand/logo overlay. Reserved now (R2); rendering
+ * requires decode→overlay→re-encode, so it ships with the Pro transcode milestone,
+ * not under the Free `-c copy` relay.
+ */
+export interface WatermarkConfig {
+  /** Text mark (e.g. "RTMP Hub"); used when logoPath is absent. */
+  text?: string;
+  /** Path to a logo image to overlay. */
+  logoPath?: string;
+  position: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+  /** 0..1; defaults applied at render time. */
+  opacity?: number;
+}
+
 /** PRO (later): per-destination transcode overrides. undefined => -c copy relay. */
 export interface EncodeOverride {
   bitrate?: string;
   resolution?: string;
   fps?: number;
+  /** PRO: per-destination watermark overlay. Reserved; not rendered under Free -c copy. */
+  watermark?: WatermarkConfig;
 }
 
 export interface RtmpDestination {

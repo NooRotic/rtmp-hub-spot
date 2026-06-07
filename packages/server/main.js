@@ -81,7 +81,11 @@ function applyContentSecurityPolicy() {
     "img-src 'self' data: blob:; " +
     "media-src 'self' blob:; " +
     "font-src 'self' data:; " +
-    "connect-src 'self' https://localhost:* wss://localhost:* ws://localhost:*;";
+    // http://127.0.0.1:* + http://localhost:* allow the in-app mpegts preview to
+    // fetch the local NMS HTTP-FLV egress (port 8000, plain http). Scoped to LOOPBACK
+    // only — never the LAN IP or a wildcard host — so it stays unreachable off-box.
+    "connect-src 'self' https://localhost:* wss://localhost:* ws://localhost:* " +
+    "http://127.0.0.1:* http://localhost:*;";
   const scriptSrc = app.isPackaged
     ? "script-src 'self' 'unsafe-inline'; "                  // prod: inline polyfill ok, no eval
     : "script-src 'self' 'unsafe-inline' 'unsafe-eval'; ";   // dev: Vite HMR needs eval
@@ -222,11 +226,15 @@ async function initializeServer() {
   return { nms, server, io };
 }
 
+// Active RTMP publishers (streamKey -> { ip, path, startTime }). Declared at module
+// scope so both the NMS publish handlers (inside initializeServer) and isSourceLive
+// (used by the relay orchestrator below) share one source of truth.
+const rtmpPublishers = new Map();
+
 console.log('[SERVER] Starting initialization...');
 initializeServer().then(({ nms, server, io }) => {
   console.log('[SERVER] Initialization successful, attaching listeners...');
   const rtmpSessions = new Map();   // id -> { ip, path, startTime }  — RTMP players
-  const rtmpPublishers = new Map(); // streamKey -> { ip, path, startTime } — active publishers
 
   // Resolve session data via the version-robust, unit-tested helper (nms-session.js).
   // NMS v4 emits the session object with the path on `streamPath`; reading the old
@@ -512,11 +520,16 @@ const relayManager = createRelayManager({
 reconnectionSupervisor = createReconnectionSupervisor({
   startRelay: (item) => relayManager.start(item.sourceKey, item.destination),
 });
+// A source is "live" iff NMS currently has a publisher on its streamKey. Reuse the
+// same map server-status is derived from — single source of truth (spec R3).
+const isSourceLive = (streamKey) => rtmpPublishers.has(streamKey);
+
 const broadcastOrchestrator = createBroadcastOrchestrator({
   supervisor: reconnectionSupervisor,
   relayManager,
   listBindings: () => destinationStore.loadBindings(),
   listDestinations: () => destinationStore.loadDestinations(),
+  isSourceLive,
 });
 
 ipcMain.on('ffmpeg-pipe-start', (event, config = {}) => {
@@ -710,7 +723,10 @@ ipcMain.on('window-close', () => {
 
 // RTMP destination CRUD (Multi-Stream Pro) — encrypted via safeStorage
 const { registerDestinationHandlers } = require('./destinationHandlers');
-registerDestinationHandlers(ipcMain);
+registerDestinationHandlers(ipcMain, {
+  store: destinationStore,
+  orchestrator: broadcastOrchestrator,
+});
 
 app.whenReady().then(createWindow);
 

@@ -85,6 +85,18 @@ function createDestinationStore({ getUserDataDir, safeStorage }) {
     saveBindings(list);
   }
 
+  function removeBinding(sourceKey, destinationId) {
+    saveBindings(
+      loadBindings().filter(
+        (b) => !(b.sourceKey === sourceKey && b.destinationId === destinationId),
+      ),
+    );
+  }
+
+  function removeBindingsForDestination(destinationId) {
+    saveBindings(loadBindings().filter((b) => b.destinationId !== destinationId));
+  }
+
   return {
     loadDestinations,
     saveDestinations,
@@ -94,6 +106,8 @@ function createDestinationStore({ getUserDataDir, safeStorage }) {
     loadBindings,
     saveBindings,
     setBinding,
+    removeBinding,
+    removeBindingsForDestination,
   };
 }
 
@@ -122,4 +136,6 @@ module.exports = {
   loadBindings: (...args) => getDefaultStore().loadBindings(...args),
   saveBindings: (...args) => getDefaultStore().saveBindings(...args),
   setBinding: (...args) => getDefaultStore().setBinding(...args),
+  removeBinding: (...args) => getDefaultStore().removeBinding(...args),
+  removeBindingsForDestination: (...args) => getDefaultStore().removeBindingsForDestination(...args),
 };

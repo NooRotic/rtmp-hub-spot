@@ -42,6 +42,50 @@ export function cleanup() {
   }
 }
 
+// ─── renderHook ────────────────────────────────────────────────────────────────
+
+interface RenderHookResult<T> {
+  result: { current: T };
+  rerender: () => void;
+  unmount: () => void;
+}
+
+// Stable, module-level probe so rerender() re-renders the SAME component instance
+// (preserving hook state) instead of remounting a fresh closure each time.
+function HookProbe<T>({ hookFn, store }: { hookFn: () => T; store: { current: T } }) {
+  store.current = hookFn();
+  return null;
+}
+
+/**
+ * Minimal renderHook (react-dom/client + act). Renders a stable probe that calls
+ * `hook()` and captures its return into `result.current` on every render. Effects
+ * run inside act(), so synchronous effect updates are visible immediately; for async
+ * effects, wrap the trigger in `await act(async () => {})` in the test. `rerender()`
+ * preserves hook state (same instance). The root is also registered with the module
+ * `mountedRoots` registry, so `cleanup()` releases it even if a test omits `unmount()`.
+ *
+ * NOTE: `rerender()` does NOT wrap in act() — callers must wrap in their own
+ * `act(() => rerender())` or `await act(async () => { rerender(); })`. This avoids
+ * nested-act issues where `act(() => act(() => {...}))` causes the inner work to be
+ * treated as async and never flushed by the outer synchronous act call.
+ */
+export function renderHook<T>(hook: () => T): RenderHookResult<T> {
+  const result = { current: undefined as unknown as T };
+  const el = document.createElement('div');
+  document.body.appendChild(el);
+  const root = createRoot(el);
+  const render = () => root.render(<HookProbe hookFn={hook} store={result} />);
+  // Initial render flushed inside act() so effects run before returning.
+  act(() => { render(); });
+  mountedRoots.push({ root, el });
+  return {
+    result,
+    rerender: render,
+    unmount: () => { act(() => root.unmount()); el.remove(); },
+  };
+}
+
 // ─── DOM query helpers ────────────────────────────────────────────────────────
 
 type Matcher = string | RegExp;

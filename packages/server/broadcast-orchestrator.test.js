@@ -1,15 +1,16 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createBroadcastOrchestrator } from './broadcast-orchestrator.js';
 
-function make({ bindings = [], destinations = [] } = {}) {
+function make({ bindings = [], destinations = [], liveSources = [] } = {}) {
   const enq = [];
   const supervisor = { enqueue: (i) => enq.push(i), cancel: vi.fn() };
-  const relayManager = { stopForSource: vi.fn() };
+  const relayManager = { stopForSource: vi.fn(), stop: vi.fn(), stopForDestination: vi.fn() };
   const orch = createBroadcastOrchestrator({
     supervisor,
     relayManager,
     listBindings: () => bindings,
     listDestinations: () => destinations,
+    isSourceLive: (key) => liveSources.includes(key),
   });
   return { orch, enq, supervisor, relayManager };
 }
@@ -53,5 +54,42 @@ describe('broadcast-orchestrator', () => {
     });
     expect(() => orch.onSourcePublished('grid')).not.toThrow();
     expect(enq).toHaveLength(0);
+  });
+
+  it('onBindingAdded enqueues when the source is live and the destination enabled', () => {
+    const { orch, enq } = make({ liveSources: ['grid'] });
+    orch.onBindingAdded('grid', YT);
+    expect(enq).toEqual([{ sourceKey: 'grid', destination: YT }]);
+  });
+
+  it('onBindingAdded does NOT enqueue when the source is offline (pre-wiring)', () => {
+    const { orch, enq } = make({ liveSources: [] });
+    orch.onBindingAdded('grid', YT);
+    expect(enq).toHaveLength(0);
+  });
+
+  it('onBindingAdded does NOT enqueue a disabled destination even if the source is live', () => {
+    const { orch, enq } = make({ liveSources: ['grid'] });
+    orch.onBindingAdded('grid', { ...YT, enabled: false });
+    expect(enq).toHaveLength(0);
+  });
+
+  it('onBindingAdded safely ignores a null destination even if the source is live', () => {
+    const { orch, enq } = make({ liveSources: ['grid'] });
+    expect(() => orch.onBindingAdded('grid', null)).not.toThrow();
+    expect(enq).toHaveLength(0);
+  });
+
+  it('onBindingRemoved cancels the pending reconnect and stops the running relay', () => {
+    const { orch, supervisor, relayManager } = make();
+    orch.onBindingRemoved('grid', 'yt');
+    expect(supervisor.cancel).toHaveBeenCalledWith('grid', 'yt');
+    expect(relayManager.stop).toHaveBeenCalledWith('grid', 'yt');
+  });
+
+  it('onDestinationRemoved stops every relay for that destination', () => {
+    const { orch, relayManager } = make();
+    orch.onDestinationRemoved('yt');
+    expect(relayManager.stopForDestination).toHaveBeenCalledWith('yt');
   });
 });

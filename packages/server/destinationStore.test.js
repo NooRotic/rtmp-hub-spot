@@ -134,4 +134,35 @@ describe('destinationStore bindings', () => {
     expect(list).toHaveLength(2);
     expect(list.find((b) => b.destinationId === 'yt').active).toBe(false);
   });
+
+  it('removeBinding drops only the matching (sourceKey, destinationId)', () => {
+    const { store } = tmpStore();
+    store.setBinding({ sourceKey: 'grid', destinationId: 'yt', active: true });
+    store.setBinding({ sourceKey: 'grid', destinationId: 'kick', active: true });
+    store.setBinding({ sourceKey: 'feed-cam', destinationId: 'yt', active: true });
+
+    store.removeBinding('grid', 'yt');
+
+    const ids = store.loadBindings().map((b) => `${b.sourceKey}:${b.destinationId}`).sort();
+    expect(ids).toEqual(['feed-cam:yt', 'grid:kick']);
+  });
+
+  it('removeBinding is a no-op when nothing matches', () => {
+    const { store } = tmpStore();
+    store.setBinding({ sourceKey: 'grid', destinationId: 'yt', active: true });
+    store.removeBinding('grid', 'ghost');
+    expect(store.loadBindings()).toHaveLength(1);
+  });
+
+  it('removeBindingsForDestination drops every binding for that destination across sources', () => {
+    const { store } = tmpStore();
+    store.setBinding({ sourceKey: 'grid', destinationId: 'yt', active: true });
+    store.setBinding({ sourceKey: 'feed-cam', destinationId: 'yt', active: false });
+    store.setBinding({ sourceKey: 'grid', destinationId: 'kick', active: true });
+
+    store.removeBindingsForDestination('yt');
+
+    const list = store.loadBindings();
+    expect(list).toEqual([{ sourceKey: 'grid', destinationId: 'kick', active: true }]);
+  });
 });
