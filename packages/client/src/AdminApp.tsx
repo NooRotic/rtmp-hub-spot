@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useWebRTC } from './hooks/useWebRTC';
 import { useMediaDevices } from './hooks/useMediaDevices';
+import { usePersistence } from './hooks/usePersistence';
 import { useElectronBridge } from './hooks/useElectronBridge';
 import { useFfmpegPipeline } from './hooks/useFfmpegPipeline';
 import { useRecordings } from './hooks/useRecordings';
@@ -18,17 +19,6 @@ import Lobby from './components/Lobby';
 import mpegts from 'mpegts.js';
 import { localFlvUrl } from './components/RtmpPlayerTile';
 import { feedKey } from './utils/streamKey';
-
-// Effect for persistence
-export function usePersistence(selectedVideo: string, selectedAudio: string) {
-  useEffect(() => {
-    localStorage.setItem('hub-video-device', selectedVideo);
-  }, [selectedVideo]);
-
-  useEffect(() => {
-    localStorage.setItem('hub-audio-device', selectedAudio);
-  }, [selectedAudio]);
-}
 
 // Custom hook for resizable sidebar
 function useResizableSidebar(initialWidth: number) {
