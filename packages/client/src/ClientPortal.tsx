@@ -5,6 +5,8 @@ import { usePersistence } from './hooks/usePersistence';
 import Lobby from './components/Lobby';
 import VideoFeed from './components/VideoFeed';
 import ChatBox from './components/ChatBox';
+import { NTButton } from './ui/NTButton';
+import { StatusTag } from './ui/StatusTag';
 
 /**
  * Self-contained browser-participant component.
@@ -103,162 +105,143 @@ export function ClientPortal() {
     );
   }
 
-  // In-session participant view
+  // Derive status tag state from connection state
+  const statusState = isLive ? 'live' : isConnected ? 'running' : 'idle';
+  const statusLabel = isLive ? '● LIVE' : isConnected ? 'CONNECTED' : 'IDLE';
+
+  // In-session participant view — mobile-first dark-NT layout
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
-      {isLive && <div className="live-banner">◉ YOU ARE LIVE</div>}
+    <div className="ntd ntd-portal">
+      {/* Status row */}
+      <div>
+        <StatusTag state={statusState} label={statusLabel} />
+      </div>
 
-      <div className="ntd" style={{ flex: 1, padding: '20px', overflowY: 'auto' }}>
-        <div className="window ntd">
-          <div className="window-title">
-            <span>Client Participant Portal</span>
-          </div>
-          <div className="window-content">
-            <div className="inset-field" style={{ marginBottom: '15px' }}>
-              {/* Device selects */}
-              <div style={{ display: 'flex', gap: '10px', marginBottom: '10px', flexWrap: 'wrap' }}>
-                <div style={{ flex: '1 1 auto', minWidth: '120px' }}>
-                  <label>Camera: </label>
-                  <select
-                    className="ntd-field"
-                    style={{ width: '100%', boxSizing: 'border-box' }}
-                    value={selectedVideo}
-                    onChange={(e) => setSelectedVideo(e.target.value)}
-                  >
-                    <option value="">Default Camera</option>
-                    {videoDevices.map((d) => (
-                      <option key={d.deviceId} value={d.deviceId}>
-                        {d.label || 'Camera'}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div style={{ flex: '1 1 auto', minWidth: '120px' }}>
-                  <label>Mic: </label>
-                  <select
-                    className="ntd-field"
-                    style={{ width: '100%', boxSizing: 'border-box' }}
-                    value={selectedAudio}
-                    onChange={(e) => setSelectedAudio(e.target.value)}
-                  >
-                    <option value="">Default Mic</option>
-                    {audioDevices.map((d) => (
-                      <option key={d.deviceId} value={d.deviceId}>
-                        {d.label || 'Microphone'}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+      {/* Preview block — self view or camera error placeholder */}
+      <div className="ntd-portal__preview">
+        {cameraError && !userStream && (
+          <div
+            role="alert"
+            style={{
+              height: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '14px',
+              padding: '16px 18px',
+              background: 'var(--ntd-face-2)',
+              border: '2px solid var(--ntd-error)',
+              color: 'var(--ntd-text)',
+              boxSizing: 'border-box',
+            }}
+          >
+            <span aria-hidden style={{ fontSize: '30px', lineHeight: 1, color: 'var(--ntd-error)' }}>
+              ⚠
+            </span>
+            <div>
+              <div style={{ fontWeight: 'bold', color: 'var(--ntd-error)', letterSpacing: '1px' }}>
+                CAMERA UNAVAILABLE
               </div>
-
-              {/* Name + camera toggle + connect/disconnect controls */}
-              <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-                <input
-                  className="ntd-field"
-                  type="text"
-                  value={userName}
-                  onChange={(e) => setUserName(e.target.value)}
-                  placeholder="Required: Enter your name"
-                  disabled={isConnected}
-                  style={{
-                    border: !userName.trim() ? '2px solid var(--ntd-error)' : 'none',
-                    flex: '1 1 140px',
-                    minWidth: '140px',
-                  }}
-                />
-                <button
-                  className="ntd-btn"
-                  onClick={() => setLocalCameraActive(!localCameraActive)}
-                  style={{
-                    padding: '6px 16px',
-                    backgroundColor: localCameraActive
-                      ? 'var(--ntd-error)'
-                      : 'var(--ntd-go)',
-                    flex: '1 1 auto',
-                  }}
-                >
-                  {localCameraActive ? 'STOP CAMERA' : 'START CAMERA'}
-                </button>
-                <button
-                  className="ntd-btn"
-                  onClick={isConnected ? disconnect : handleConnect}
-                  style={{
-                    padding: '6px 16px',
-                    backgroundColor: isConnected
-                      ? 'var(--ntd-error)'
-                      : 'var(--ntd-go)',
-                    flex: '1 1 auto',
-                  }}
-                  disabled={!userName.trim()}
-                >
-                  {isConnected ? 'DISCONNECT' : 'CONNECT TO HUB'}
-                </button>
-              </div>
+              <div style={{ fontSize: '12px', marginTop: '3px' }}>{cameraError}</div>
             </div>
-
-            {/* Camera error placeholder */}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
-              {cameraError && !userStream && (
-                <div
-                  role="alert"
-                  style={{
-                    flex: '1 1 100%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '14px',
-                    padding: '16px 18px',
-                    background: 'var(--ntd-face-2)',
-                    border: '2px solid var(--ntd-error)',
-                    color: 'var(--ntd-text)',
-                  }}
-                >
-                  <span aria-hidden style={{ fontSize: '30px', lineHeight: 1, color: 'var(--ntd-error)' }}>
-                    ⚠
-                  </span>
-                  <div>
-                    <div
-                      style={{
-                        fontWeight: 'bold',
-                        color: 'var(--ntd-error)',
-                        letterSpacing: '1px',
-                      }}
-                    >
-                      CAMERA UNAVAILABLE
-                    </div>
-                    <div style={{ fontSize: '12px', marginTop: '3px' }}>{cameraError}</div>
-                  </div>
-                </div>
-              )}
-
-              {/* Self view */}
-              {userStream && (
-                <VideoFeed
-                  stream={userStream}
-                  label={`${userName} (Self)`}
-                  isLocal
-                  isVideoEnabled={isVideoEnabled}
-                  setIsVideoEnabled={setIsVideoEnabled}
-                  isAudioEnabled={isAudioEnabled}
-                  setIsAudioEnabled={setIsAudioEnabled}
-                  serverLocalIP={serverStatus?.local}
-                />
-              )}
-
-              {/* Peer feeds */}
-              {peers.map((peer) => (
-                <VideoFeed
-                  key={peer.id}
-                  stream={peer.stream}
-                  label={peer.name || `User ${peer.id.slice(0, 4)}`}
-                  serverLocalIP={serverStatus?.local}
-                />
-              ))}
-            </div>
-
-            {/* Chat */}
-            <ChatBox messages={chatMessages} onSendMessage={sendMessage} />
           </div>
+        )}
+        {userStream && (
+          <VideoFeed
+            stream={userStream}
+            label={`${userName} (Self)`}
+            isLocal
+            isVideoEnabled={isVideoEnabled}
+            setIsVideoEnabled={setIsVideoEnabled}
+            isAudioEnabled={isAudioEnabled}
+            setIsAudioEnabled={setIsAudioEnabled}
+            serverLocalIP={serverStatus?.local}
+          />
+        )}
+      </div>
+
+      {/* Name input */}
+      <input
+        className={`ntd-field ntd-portal__field${!userName.trim() ? ' ntd-field--error' : ''}`}
+        type="text"
+        value={userName}
+        onChange={(e) => setUserName(e.target.value)}
+        placeholder="Required: Enter your name"
+        disabled={isConnected}
+        style={{ width: '100%', boxSizing: 'border-box' }}
+      />
+
+      {/* Device selects */}
+      <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+        <div style={{ flex: '1 1 auto', minWidth: '120px' }}>
+          <label style={{ display: 'block', fontSize: '11px', color: 'var(--ntd-text-dim)', marginBottom: '3px' }}>
+            Camera
+          </label>
+          <select
+            className="ntd-field"
+            style={{ width: '100%', boxSizing: 'border-box', minHeight: '44px' }}
+            value={selectedVideo}
+            onChange={(e) => setSelectedVideo(e.target.value)}
+          >
+            <option value="">Default Camera</option>
+            {videoDevices.map((d) => (
+              <option key={d.deviceId} value={d.deviceId}>
+                {d.label || 'Camera'}
+              </option>
+            ))}
+          </select>
         </div>
+        <div style={{ flex: '1 1 auto', minWidth: '120px' }}>
+          <label style={{ display: 'block', fontSize: '11px', color: 'var(--ntd-text-dim)', marginBottom: '3px' }}>
+            Mic
+          </label>
+          <select
+            className="ntd-field"
+            style={{ width: '100%', boxSizing: 'border-box', minHeight: '44px' }}
+            value={selectedAudio}
+            onChange={(e) => setSelectedAudio(e.target.value)}
+          >
+            <option value="">Default Mic</option>
+            {audioDevices.map((d) => (
+              <option key={d.deviceId} value={d.deviceId}>
+                {d.label || 'Microphone'}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {/* Action bar — camera toggle + connect/disconnect */}
+      <div className="ntd-portal__bar">
+        <NTButton
+          go={!localCameraActive}
+          onClick={() => setLocalCameraActive(!localCameraActive)}
+          style={{ backgroundColor: localCameraActive ? 'var(--ntd-error)' : undefined }}
+        >
+          {localCameraActive ? 'STOP CAMERA' : 'START CAMERA'}
+        </NTButton>
+        <NTButton
+          go={!isConnected}
+          onClick={isConnected ? disconnect : handleConnect}
+          disabled={!userName.trim()}
+          style={{ backgroundColor: isConnected ? 'var(--ntd-error)' : undefined }}
+        >
+          {isConnected ? 'DISCONNECT' : 'CONNECT TO HUB'}
+        </NTButton>
+      </div>
+
+      {/* Peer feeds */}
+      {peers.map((peer) => (
+        <VideoFeed
+          key={peer.id}
+          stream={peer.stream}
+          label={peer.name || `User ${peer.id.slice(0, 4)}`}
+          serverLocalIP={serverStatus?.local}
+        />
+      ))}
+
+      {/* Chat — pushed to bottom via margin-top: auto */}
+      <div className="ntd-portal__chat">
+        <ChatBox messages={chatMessages} onSendMessage={sendMessage} />
       </div>
     </div>
   );
