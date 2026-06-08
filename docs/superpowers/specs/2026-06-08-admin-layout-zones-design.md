@@ -48,7 +48,9 @@ A horizontal deck under the stage = the broadcast I/O, always visible:
 This unifies three old sidebar/tab sections (Active RTMP Links + Live Publishers + RTMP Viewers) into one console answering "are my feeds healthy and is OBS getting them?" at a glance, plus the restream outputs.
 
 ### §4 Chat drawer
-Today's `ChatBox`, moved into a right-side **collapsible drawer** toggled from the top bar. The toggle shows an **unread indicator** (dot/count) that increments on new messages while closed and clears on open. (Requires tracking last-seen vs incoming `chatMessages`.)
+Today's `ChatBox`, moved into a right-side **collapsible drawer** toggled from the top bar.
+- **Open by default**, but the open/closed state **persists** (localStorage, e.g. `hub-chat-open`): once the admin collapses it, it **stays collapsed** across reloads until reopened. (Default `true` on first run.)
+- The toggle shows an **unread indicator** (dot/count) that increments on new messages **while collapsed** and clears on open. (Requires tracking last-seen vs incoming `chatMessages`; the badge is only meaningful when closed, since an open drawer shows the messages.)
 
 ### §5 Settings drawer
 The low-frequency config that was scattered, gathered into a **⚙ drawer/modal**: broadcast quality (bitrate/preset/encoder — today's `SettingsTab`), **Room PIN** (Room Access), **grid options** (include-admin / auto-layout / watermark / burn-in — from the old Grid Controls), the **Pro** watermark toggle, and **System Status** (NMS/WebRTC/RTMP diagnostics). Configure-once, out of the operating surface.
