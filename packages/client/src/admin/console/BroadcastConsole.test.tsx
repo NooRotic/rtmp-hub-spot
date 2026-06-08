@@ -5,6 +5,12 @@ import { BroadcastConsole } from './BroadcastConsole';
 import type { RtmpDestination, DestinationBinding } from '../../../../shared';
 import type { RelayEntry } from '../../hooks/useRelays';
 
+// RtmpPlayerTile (used by the SOURCES lane's ConsoleSourceRow) uses mpegts.js; mock it.
+vi.mock('../../components/RtmpPlayerTile', () => ({
+  RtmpPlayerTile: ({ streamKey }: { streamKey: string }) => <div data-testid="preview">{streamKey}</div>,
+  localFlvUrl: (k: string) => `http://127.0.0.1:8000/live/${k}.flv`,
+}));
+
 const YT: RtmpDestination = {
   id: 'yt',
   name: 'My YouTube',
@@ -47,6 +53,16 @@ describe('BroadcastConsole', () => {
     expect(container.textContent).toMatch(/running|idle/i);   // ffmpeg chip
     expect(container.textContent).toMatch(/outputs/i);
     expect(container.textContent).toMatch(/add destination/i);
+  });
+
+  it('renders a SOURCES lane with a row per live publisher', () => {
+    const { container } = render(<AdminDataProvider value={base()}><BroadcastConsole /></AdminDataProvider>);
+    expect(container.textContent).toMatch(/sources/i);
+    // base() has rtmpPublishers: [{ streamKey: 'grid' }] → a source row for 'grid'
+    const codes = Array.from(container.querySelectorAll('code')).map(c => c.textContent);
+    expect(codes).toContain('grid');
+    // the per-source RTMP pull route is copyable
+    expect(container.textContent).toContain('rtmp://127.0.0.1:1935/live/grid');
   });
 
   it('binds a destination to a source via the OUTPUTS lane', () => {

@@ -7,12 +7,13 @@ import { NTButton } from '../../ui/NTButton';
 import { DestinationForm } from '../tabs/DestinationForm';
 import { platformInfo } from '../platforms';
 import { maskKey } from '../maskKey';
+import { deriveConsoleSources } from './deriveConsoleSources';
+import { ConsoleSourceRow } from './ConsoleSourceRow';
 
-/** Persistent broadcast dock: FFmpeg health chip + OUTPUTS (restream) lane.
- *  TODO(Task 5): SOURCES lane mounts here (above OUTPUTS).
- */
+/** Persistent broadcast dock: FFmpeg health chip + SOURCES lane + OUTPUTS (restream) lane. */
 export function BroadcastConsole() {
-  const { ffmpeg, sources, destinations, bindings, relays, destinationActions } = useAdminData();
+  const { ffmpeg, sources, destinations, bindings, relays, destinationActions, serverStatus, recordings } = useAdminData();
+  const consoleSources = deriveConsoleSources(serverStatus);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<RtmpDestination | null>(null);
 
@@ -51,7 +52,27 @@ export function BroadcastConsole() {
         </span>
       </div>
 
-      {/* ── TODO(Task 5): SOURCES lane mounts here ──────────────────────── */}
+      {/* ── SOURCES lane (one line per RTMP publisher) ──────────────────── */}
+      <div className="ntd-console__lane">
+        <span className="ntd-console__lane-label">SOURCES</span>
+        {consoleSources.length === 0 ? (
+          <div style={{ color: 'var(--ntd-text-dim)', fontSize: 11 }}>
+            No live sources — start a publisher to broadcast.
+          </div>
+        ) : (
+          consoleSources.map((src) => (
+            <ConsoleSourceRow
+              key={src.streamKey}
+              source={src}
+              serverLocalIP={serverStatus?.local}
+              isRecording={recordings.active.some((r) => r.streamKey === src.streamKey)}
+              onStartRec={recordings.start}
+              onStopRec={recordings.stop}
+            />
+          ))
+        )}
+      </div>
+
 
       {/* ── OUTPUTS lane (destination library + routing + add form) ──────── */}
       <div className="ntd-console__lane">
