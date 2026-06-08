@@ -403,11 +403,13 @@ function AdminApp() {
                                 border: '1px solid var(--ntd-sh)'
                               }}
                             >★</button>
-                            <button
-                              onClick={() => kickUser(p.id)}
-                              title="Remove this user from the session"
-                              style={{ fontSize: '8px', padding: '1px 4px', cursor: 'pointer', background: '#ff000022', color: 'var(--ntd-error)', border: '1px solid var(--ntd-error)' }}
-                            >✕</button>
+                            {isElectron && (
+                              <button
+                                onClick={() => kickUser(p.id)}
+                                title="Remove this user from the session"
+                                style={{ fontSize: '8px', padding: '1px 4px', cursor: 'pointer', background: '#ff000022', color: 'var(--ntd-error)', border: '1px solid var(--ntd-error)' }}
+                              >✕</button>
+                            )}
                           </div>
                         )}
                       </div>
