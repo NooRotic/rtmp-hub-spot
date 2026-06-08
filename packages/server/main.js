@@ -394,7 +394,7 @@ initializeServer().then(({ nms, server, io }) => {
         return;
       }
       socket.join(roomId);
-      users[socket.id] = { name: userName || `User ${socket.id.slice(0, 4)}`, roomId };
+      users[socket.id] = { name: userName || `User ${socket.id.slice(0, 4)}`, roomId, isHost: trusted };
       
       const otherUsers = Object.keys(users).filter(id => id !== socket.id && users[id].roomId === roomId);
       socket.emit('all-users', otherUsers.map(id => ({ userId: id, userName: users[id].name })));
@@ -406,6 +406,7 @@ initializeServer().then(({ nms, server, io }) => {
     });
 
     socket.on('offer', (data) => {
+      if (!users[socket.id]) return; // only joined members may signal
       socket.to(data.to).emit('offer', {
         offer: data.offer,
         senderId: socket.id,
@@ -414,6 +415,7 @@ initializeServer().then(({ nms, server, io }) => {
     });
 
     socket.on('answer', (data) => {
+      if (!users[socket.id]) return; // only joined members may signal
       socket.to(data.to).emit('answer', {
         answer: data.answer,
         senderId: socket.id
@@ -421,6 +423,7 @@ initializeServer().then(({ nms, server, io }) => {
     });
 
     socket.on('ice-candidate', (data) => {
+      if (!users[socket.id]) return; // only joined members may signal
       socket.to(data.to).emit('ice-candidate', {
         candidate: data.candidate,
         senderId: socket.id
@@ -428,6 +431,7 @@ initializeServer().then(({ nms, server, io }) => {
     });
 
     socket.on('chat-message', (data) => {
+      if (!users[socket.id]) return; // only joined members may chat
       const { roomId, message } = data;
       const senderName = users[socket.id]?.name || 'Unknown';
       io.to(roomId).emit('chat-message', {
@@ -439,6 +443,7 @@ initializeServer().then(({ nms, server, io }) => {
     });
 
     socket.on('kick-user', ({ targetId }) => {
+      if (!users[socket.id]?.isHost) return; // host-only (the Electron host, token-trusted)
       const targetSocket = io.sockets.sockets.get(targetId);
       if (targetSocket) {
         console.log(`[Signaling] Kicking user: ${users[targetId]?.name || targetId}`);
