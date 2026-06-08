@@ -432,7 +432,8 @@ initializeServer().then(({ nms, server, io }) => {
 
     socket.on('chat-message', (data) => {
       if (!users[socket.id]) return; // only joined members may chat
-      const { roomId, message } = data;
+      const { message } = data;
+      const roomId = users[socket.id].roomId; // authoritative — never trust client-supplied roomId
       const senderName = users[socket.id]?.name || 'Unknown';
       io.to(roomId).emit('chat-message', {
         senderId: socket.id,
