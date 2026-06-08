@@ -15,6 +15,7 @@ import type { ReactElement } from 'react';
 interface RenderResult {
   container: HTMLElement;
   unmount: () => void;
+  rerender: (ui: ReactElement) => void;
 }
 
 const mountedRoots: Array<{ root: Root; el: HTMLElement }> = [];
@@ -30,6 +31,9 @@ export function render(ui: ReactElement): RenderResult {
     unmount() {
       act(() => root.unmount());
       el.remove();
+    },
+    rerender(newUi: ReactElement) {
+      act(() => { root.render(newUi); });
     },
   };
 }
