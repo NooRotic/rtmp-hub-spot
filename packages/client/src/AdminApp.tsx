@@ -250,15 +250,8 @@ function AdminApp() {
     });
   };
 
-  const gridStreams = useMemo(() => {
-    const all = [
-      { id: 'local', stream: userStream || undefined, label: cameraLabel },
-      ...peers.map(p => ({ id: p.id, stream: p.stream, label: p.name || p.id.slice(0, 8) })),
-      ...syntheticFeeds.filter(f => f.stream).map(f => ({ id: f.id, stream: f.stream as MediaStream, label: f.label }))
-    ];
-    return all.filter(s => gridMembers.has(s.id));
-  }, [peers, userStream, cameraLabel, gridMembers, syntheticFeeds]);
-
+  // NOTE: every connected peer appears in the grid (intended). `allStreams` is the
+  // single source for GridView — there is no per-peer grid-membership filter.
   const allStreams = useMemo(() => [
     ...(userStream && (adminCamActive || isGridShared) ? [{
       id: 'local',
