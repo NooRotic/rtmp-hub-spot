@@ -25,6 +25,7 @@ const SEND_CHANNELS = new Set([
   'ffmpeg-pipe-start',
   'ffmpeg-pipe-chunk',
   'ffmpeg-pipe-stop',
+  'set-room-pin',
 ]);
 
 // Renderer -> main, request/response.
@@ -39,6 +40,8 @@ const INVOKE_CHANNELS = new Set([
   'bindings:list',
   'bindings:set',
   'bindings:remove',
+  'get-room-pin',
+  'get-host-token',
 ]);
 
 // Main -> renderer events the renderer subscribes to.

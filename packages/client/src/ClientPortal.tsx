@@ -29,6 +29,8 @@ export function ClientPortal() {
     () => localStorage.getItem('hub-audio-device') || ''
   );
   const [localCameraActive, setLocalCameraActive] = useState(false);
+  const [pin, setPin] = useState('');
+  const [deniedReason, setDeniedReason] = useState<string | null>(null);
   const pendingConnectRef = useRef(false);
 
   usePersistence(selectedVideo, selectedAudio);
@@ -50,6 +52,7 @@ export function ClientPortal() {
     wasKicked,
     isLive,
     serverStatus,
+    joinDenied,
   } = useWebRTC('main-hub', {
     videoId: localCameraActive ? (selectedVideo || undefined) : undefined,
     audioId: localCameraActive ? (selectedAudio || undefined) : undefined,
@@ -59,6 +62,7 @@ export function ClientPortal() {
       'Default Camera',
     captureVideo: localCameraActive,
     overrideStream: null,
+    pin,
   });
 
   const handleConnect = () => {
@@ -70,8 +74,10 @@ export function ClientPortal() {
     connect();
   };
 
-  const handleLobbyJoin = (name: string) => {
+  const handleLobbyJoin = (name: string, pinValue: string) => {
     setUserName(name);
+    setPin(pinValue);
+    setDeniedReason(null);
     localStorage.setItem('hub-username', name);
     setLocalCameraActive(true);
     setLobbyDone(true);
@@ -94,6 +100,20 @@ export function ClientPortal() {
     }
   }, [wasKicked]);
 
+  // When join is denied (wrong PIN, cooldown, etc.): return to lobby with reason.
+  // Keyed on [joinDenied] ONLY: each denial is a fresh object reference, so the
+  // effect fires exactly once per denial. Crucially, a RETRY (handleLobbyJoin sets
+  // lobbyDone=true while joinDenied still holds the stale object) must NOT re-fire
+  // this — joinDenied is unchanged by reference, so the user can proceed and connect.
+  // joinDenied is cleared (null) by useWebRTC on the next 'connect'.
+  useEffect(() => {
+    if (joinDenied) {
+      setDeniedReason(joinDenied.reason);
+      setLobbyDone(false);
+      setLocalCameraActive(false);
+    }
+  }, [joinDenied]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Pre-flight lobby
   if (!lobbyDone) {
     return (
@@ -101,6 +121,7 @@ export function ClientPortal() {
         onJoin={handleLobbyJoin}
         initialName={userName}
         wasKicked={wasKicked}
+        deniedReason={deniedReason ?? undefined}
       />
     );
   }

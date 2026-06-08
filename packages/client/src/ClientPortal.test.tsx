@@ -7,12 +7,13 @@ const wrtc = {
   isVideoEnabled: true, setIsVideoEnabled: vi.fn(), isAudioEnabled: true, setIsAudioEnabled: vi.fn(),
   chatMessages: [], sendMessage: vi.fn(), disconnect: vi.fn(), connect: vi.fn(),
   recordingStopped: null, wasKicked: false, kickUser: vi.fn(), isLive: false,
+  joinDenied: null as { reason: string } | null,
 };
 vi.mock('./hooks/useWebRTC', () => ({ useWebRTC: () => wrtc }));
 
 import { ClientPortal } from './ClientPortal';
 
-beforeEach(() => { wrtc.connect.mockClear(); localStorage.clear(); });
+beforeEach(() => { wrtc.connect.mockClear(); localStorage.clear(); wrtc.joinDenied = null; });
 afterEach(cleanup);
 
 describe('ClientPortal', () => {
@@ -32,5 +33,16 @@ describe('ClientPortal', () => {
     fireEvent.click(screen.getByRole('button', { name: /join hub/i }));
     // After joining, in-session controls appear including START CAMERA / STOP CAMERA
     expect(screen.getByText(/start camera|stop camera/i)).toBeTruthy();
+  });
+
+  it('shows the lobby with a denial error when useWebRTC reports joinDenied', () => {
+    // Simulate the denial lifecycle: useWebRTC reports joinDenied at mount.
+    // The effect (keyed on [joinDenied]) fires, sets deniedReason, and keeps the
+    // user on the lobby — never entering the in-session view. No JOIN click needed.
+    wrtc.joinDenied = { reason: 'pin' };
+    render(<ClientPortal />);
+    expect(screen.queryByText(/start camera|stop camera/i)).toBeNull(); // never enters session
+    expect(screen.getByText(/requires a valid pin|wrong pin|invalid pin/i)).toBeTruthy();
+    wrtc.joinDenied = null; // reset for other tests
   });
 });

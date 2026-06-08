@@ -116,4 +116,38 @@ describe('useWebRTC', () => {
     expect(result.current.peers.length).toBe(0);
     expect(result.current.isLive).toBe(false);
   });
+
+  it('joinDenied initialises as null', () => {
+    const { result } = renderHook(() => useWebRTC('main-hub'));
+    expect(result.current.joinDenied).toBeNull();
+  });
+
+  it('includes pin in the join-room emit when connect() is called', async () => {
+    const mockEmit = vi.fn();
+    const mockOn = vi.fn();
+    const { default: ioMock } = await import('socket.io-client') as any;
+    ioMock.mockReturnValueOnce({
+      on: mockOn,
+      emit: mockEmit,
+      disconnect: vi.fn(),
+      removeAllListeners: vi.fn(),
+      connected: false,
+      id: 'mock-socket-id',
+    });
+
+    // Trigger the connect handler manually: find the 'connect' listener and call it
+    mockOn.mockImplementation((event: string, handler: (...args: any[]) => void) => {
+      if (event === 'connect') {
+        // Call it synchronously so we can assert on emit
+        handler();
+      }
+    });
+
+    const { result } = renderHook(() => useWebRTC('main-hub', { pin: 'secret123' }));
+    act(() => { result.current.connect(); });
+
+    const joinRoomCall = mockEmit.mock.calls.find((c: any[]) => c[0] === 'join-room');
+    expect(joinRoomCall).toBeTruthy();
+    expect(joinRoomCall[1]).toMatchObject({ pin: 'secret123' });
+  });
 });

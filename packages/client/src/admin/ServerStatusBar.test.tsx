@@ -15,6 +15,7 @@ const data = (over: Partial<AdminData> = {}): AdminData => ({
   recordings: { active: [], now: 0, start: async () => {}, stop: () => {}, openDir: () => {} },
   settings: { bitrate: '2500k', setBitrate: () => {}, preset: 'ultrafast', setPreset: () => {}, hwAccel: 'none', setHwAccel: () => {}, detectedEncoder: null },
   destinationActions: { add: async () => {}, update: async () => {}, remove: async () => {}, setBinding: async () => {}, removeBinding: async () => {}, refresh: async () => {} },
+  roomAccess: { locked: false, setPin: async () => {}, clearPin: async () => {} },
   previewOpen: new Set(), setPreviewOpen: () => {}, refreshTelemetry: () => {},
   ...over,
 });
@@ -52,5 +53,19 @@ describe('ServerStatusBar', () => {
     expect(join).toBeTruthy();
     expect(join!.textContent).toContain('10.0.0.5'); // LAN IP from serverStatus.local
     expect(join!.textContent).toMatch(/^https?:\/\//);
+  });
+
+  it('shows 🔒 glyph when roomAccess.locked is true', () => {
+    const { container } = renderBar({ roomAccess: { locked: true, setPin: async () => {}, clearPin: async () => {} } });
+    const lockSpan = container.querySelector('[title="Room locked — PIN required"]');
+    expect(lockSpan).toBeTruthy();
+    expect(lockSpan!.textContent).toContain('🔒');
+  });
+
+  it('shows 🔓 glyph when roomAccess.locked is false', () => {
+    const { container } = renderBar({ roomAccess: { locked: false, setPin: async () => {}, clearPin: async () => {} } });
+    const openSpan = container.querySelector('[title="Room open"]');
+    expect(openSpan).toBeTruthy();
+    expect(openSpan!.textContent).toContain('🔓');
   });
 });

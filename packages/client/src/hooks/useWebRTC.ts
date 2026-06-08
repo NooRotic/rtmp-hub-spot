@@ -20,8 +20,8 @@ export { isElectron };
  * @param {RTCIceServer[]} [options.iceServers] - Override default google ICE servers for NAT traversal.
  * @param {MediaStream|null} [options.overrideStream] - A synthetic MediaStream that circumvents the getUserMedia flow (used heavily by the Admin Grid).
  */
-export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?: string; userName?: string; cameraLabel?: string; captureVideo?: boolean; iceServers?: RTCIceServer[]; overrideStream?: MediaStream | null } = {}) => {
-  const { videoId, audioId, userName, cameraLabel, captureVideo, iceServers, overrideStream } = options;
+export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?: string; userName?: string; cameraLabel?: string; captureVideo?: boolean; iceServers?: RTCIceServer[]; overrideStream?: MediaStream | null; pin?: string; hostToken?: string } = {}) => {
+  const { videoId, audioId, userName, cameraLabel, captureVideo, iceServers, overrideStream, pin, hostToken } = options;
   const [peers, setPeers] = useState<{ id: string; name: string; peer: any; stream?: MediaStream }[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [socketStatus, setSocketStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
@@ -30,6 +30,7 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
   const [chatMessages, setChatMessages] = useState<{ senderName: string, message: string, timestamp: number }[]>([]);
   const [recordingStopped, setRecordingStopped] = useState<{ streamKey: string; reason: string } | null>(null);
   const [wasKicked, setWasKicked] = useState(false);
+  const [joinDenied, setJoinDenied] = useState<{ reason: string } | null>(null);
   const [isVideoEnabled, setIsVideoEnabled] = useState(true);
   const [isAudioEnabled, setIsAudioEnabled] = useState(true);
   const [serverStatus, setServerStatus] = useState<{ 
@@ -63,6 +64,8 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
   // Refs to always reflect the latest prop values inside async callbacks and timers
   const userNameRef = useRef(userName ?? '');
   const cameraLabelRef = useRef(cameraLabel ?? '');
+  const pinRef = useRef(pin ?? '');
+  const hostTokenRef = useRef(hostToken ?? '');
 
   const addLocalStatus = (message: string) => {
     setChatMessages(prev => [...prev.slice(-49), {
@@ -142,10 +145,11 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
       reconnectAttemptsRef.current = 0; // Reset backoff on successful connect
       setSocketStatus('connected');
       setIsConnected(true);
+      setJoinDenied(null); // Clear any stale denial from a previous attempt
       const displayName = isElectron ? 'Admin Hub' : userNameRef.current;
       const fullIdentity = `${displayName} - ${cameraLabelRef.current || 'Hub'}`;
       const effectiveRoomId = 'main-hub';
-      socketRef.current.emit('join-room', { roomId: effectiveRoomId, userName: fullIdentity });
+      socketRef.current.emit('join-room', { roomId: effectiveRoomId, userName: fullIdentity, pin: pinRef.current || '', hostToken: hostTokenRef.current || undefined });
       addLocalStatus(`Joined room: ${effectiveRoomId} as ${fullIdentity}`);
     });
 
@@ -245,6 +249,12 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
         socketRef.current.disconnect();
         socketRef.current = null;
       }
+    });
+
+    socketRef.current.on('join-denied', (info: { reason: string }) => {
+      console.warn('[WebRTC] join denied:', info?.reason);
+      setJoinDenied(info || { reason: 'pin' });
+      addLocalStatus(`Join denied: ${info?.reason || 'pin'}`);
     });
 
     socketRef.current.on('server-status', (status: {
@@ -527,6 +537,8 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
   // Keep refs in sync with latest prop values so reconnect timers always see current data
   useEffect(() => { userNameRef.current = userName ?? ''; }, [userName]);
   useEffect(() => { cameraLabelRef.current = cameraLabel ?? ''; }, [cameraLabel]);
+  useEffect(() => { pinRef.current = pin ?? ''; }, [pin]);
+  useEffect(() => { hostTokenRef.current = hostToken ?? ''; }, [hostToken]);
 
   const isLive = isConnected && peers.some(p => p.stream);
 
@@ -534,6 +546,7 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
     peers,
     userStream,
     cameraError,
+    joinDenied,
     connect,
     disconnect,
     isConnected,
