@@ -11,48 +11,18 @@ import { useDestinations } from './hooks/useDestinations';
 import { useRoomPin } from './hooks/useRoomPin';
 import { deriveSources } from './admin/sources';
 import { AdminDataProvider, type AdminData } from './admin/AdminDataProvider';
-import { AdminWorkspace } from './admin/AdminWorkspace';
-import { ServerStatusBar } from './admin/ServerStatusBar';
+import { AdminTopBar } from './admin/AdminTopBar';
+import { SettingsDrawer } from './admin/drawers/SettingsDrawer';
+import { ChatDrawer } from './admin/drawers/ChatDrawer';
+import { useChatUnread } from './admin/hooks/useChatUnread';
+import { BroadcastConsole } from './admin/console/BroadcastConsole';
+import { StageTileControls } from './admin/stage/StageTileControls';
+import { RecordingsTab } from './admin/tabs/RecordingsTab';
+import { NTDrawer } from './ui/NTDrawer';
 import VideoFeed from './components/VideoFeed';
 import GridView from './components/GridView';
-import ChatBox from './components/ChatBox';
 import mpegts from 'mpegts.js';
 import { localFlvUrl } from './components/RtmpPlayerTile';
-import { feedKey } from './utils/streamKey';
-
-// Custom hook for resizable sidebar
-function useResizableSidebar(initialWidth: number) {
-  const [width, setWidth] = useState<number>(() => {
-    const saved = localStorage.getItem('hub-sidebar-width');
-    return saved ? parseInt(saved, 10) : initialWidth;
-  });
-  const isResizing = useRef(false);
-
-  const startResizing = useCallback(() => {
-    isResizing.current = true;
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', stopResizing);
-    document.body.style.cursor = 'col-resize';
-  }, []);
-
-  const stopResizing = useCallback(() => {
-    isResizing.current = false;
-    document.removeEventListener('mousemove', handleMouseMove);
-    document.removeEventListener('mouseup', stopResizing);
-    document.body.style.cursor = 'default';
-  }, []);
-
-  const handleMouseMove = useCallback((e: MouseEvent) => {
-    if (!isResizing.current) return;
-    const newWidth = e.clientX;
-    if (newWidth > 150 && newWidth < 600) {
-      setWidth(newWidth);
-      localStorage.setItem('hub-sidebar-width', newWidth.toString());
-    }
-  }, []);
-
-  return { width, startResizing };
-}
 
 /**
  * The Host/Admin dashboard — either Electron (full broadcast console) or a
@@ -76,7 +46,10 @@ function AdminApp() {
     return new URLSearchParams(window.location.search).get('role') === 'admin';
   }, [isElectron]);
 
-  const { width: sidebarWidth, startResizing } = useResizableSidebar(250);
+  // Zone open-state (drawers)
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [recOpen, setRecOpen] = useState(false);
+  const [addFeedOpen, setAddFeedOpen] = useState(false);
 
   // Grid management state
   const [gridMembers, setGridMembers] = useState<Set<string>>(new Set(['local']));
@@ -166,6 +139,8 @@ function AdminApp() {
   });
 
   const { activeRecordings, recNow, startRecording, stopRecording, openRecordingsDir } = useRecordings(ipc, recordingStopped);
+
+  const { open: chatOpen, setOpen: setChatOpen, unread: chatUnread } = useChatUnread(chatMessages.length);
 
   // Browser admin monitor auto-connect. Electron auto-connects via the useWebRTC hook itself.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -337,7 +312,7 @@ function AdminApp() {
 
   return (
     <AdminDataProvider value={adminData}>
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
+    <div className="ntd" style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
       {/* Draggable Title Bar (Electron Only) */}
       {isElectron && (
         <div className="app-title-bar ntd">
@@ -352,213 +327,18 @@ function AdminApp() {
         </div>
       )}
 
-      {/* Top Status Bar */}
-      <ServerStatusBar />
+      {/* ── ZONE 1: Top bar (status + action cluster) ── */}
+      <AdminTopBar
+        onSettings={() => setSettingsOpen(true)}
+        onRecordings={() => setRecOpen(true)}
+        onAddFeed={() => setAddFeedOpen(true)}
+        onChat={() => setChatOpen(!chatOpen)}
+        chatUnread={chatUnread}
+      />
 
-      <div className="main-layout" style={{ flex: 1, display: 'flex' }}>
-        {/* Side Panel (Admin + Admin Monitor) */}
-        {isAdminMode && (
-          <>
-            <div className="side-panel ntd" style={{ width: `${sidebarWidth}px`, display: 'flex', flexDirection: 'column' }}>
-              <div style={{ flex: 1, overflowY: 'auto', paddingRight: '5px' }}>
-                <h3 style={{ marginTop: 0, borderBottom: '1px solid var(--ntd-sh)' }}>System Status</h3>
-                <div className="ntd-field" style={{ marginBottom: '10px', fontSize: '10px' }}>
-                  <div><strong>NMS Server</strong>: Listening (1935/8000)</div>
-                  <div><strong>WebRTC Bridge</strong>: Ready</div>
-                  <div><strong>Virtual Cam</strong>: {allStreams.length > 0 ? 'Feeds Available' : 'No Input'}</div>
-                  <div><strong>Active RTMP</strong>: {serverStatus?.rtmpCount || 0} Viewer(s)</div>
-                </div>
-
-                <h3 style={{ borderBottom: '1px solid var(--ntd-sh)' }}>Connected Clients & Feeds</h3>
-                <div className="ntd-field" style={{ height: '120px', overflowY: 'auto', fontSize: '10px', marginBottom: '10px' }}>
-                  {peers.length === 0 && syntheticFeeds.length === 0 ? 'No clients connected.' : null}
-                  {peers.map(p => (
-                    <div key={p.id} style={{ borderBottom: '1px solid var(--ntd-sh)', padding: '2px 0' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '3px', overflow: 'hidden' }}>
-                          <span>⏺</span>
-                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '90px' }}>{p.name || p.id.slice(0, 8)}</span>
-                          {p.stream ?
-                            <span style={{ color: 'var(--ntd-live)', fontSize: '8px', flexShrink: 0 }}>[OK]</span> :
-                            <span style={{ color: 'var(--ntd-error)', fontSize: '8px', flexShrink: 0 }}>[–]</span>
-                          }
-                        </div>
-                        {isAdminMode && (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
-                            <label style={{ fontSize: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '2px' }}>
-                              <input
-                                type="checkbox"
-                                checked={gridMembers.has(p.id)}
-                                onChange={() => toggleGridMember(p.id)}
-                                style={{ margin: 0 }}
-                              /> Grid
-                            </label>
-                            <button
-                              onClick={() => setSpotlightId(prev => prev === p.id ? null : p.id)}
-                              title="Spotlight this feed in the grid"
-                              style={{
-                                fontSize: '8px', padding: '1px 4px', cursor: 'pointer',
-                                background: spotlightId === p.id ? 'var(--ntd-navy-b)' : 'var(--ntd-face-2)',
-                                color: spotlightId === p.id ? '#fff' : 'var(--ntd-text)',
-                                border: '1px solid var(--ntd-sh)'
-                              }}
-                            >★</button>
-                            {isElectron && (
-                              <button
-                                onClick={() => kickUser(p.id)}
-                                title="Remove this user from the session"
-                                style={{ fontSize: '8px', padding: '1px 4px', cursor: 'pointer', background: '#ff000022', color: 'var(--ntd-error)', border: '1px solid var(--ntd-error)' }}
-                              >✕</button>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                  {syntheticFeeds.map(f => (
-                    <div key={f.id} style={{ borderBottom: '1px solid var(--ntd-sh)', padding: '2px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <div style={{ display: 'flex', alignItems: 'center' }}>
-                        <span style={{ marginRight: '5px' }}>📡</span>
-                        <span>{f.label}</span>
-                        {f.stream ?
-                          <span style={{ color: 'var(--ntd-live)', marginLeft: '5px', fontSize: '8px' }}>[LIVE]</span> :
-                          <span style={{ color: 'var(--ntd-warn)', marginLeft: '5px', fontSize: '8px' }}>[FETCHING]</span>
-                        }
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                        {isAdminMode && (
-                          <label style={{ fontSize: '8px', cursor: 'pointer' }}>
-                            <input
-                              type="checkbox"
-                              checked={gridMembers.has(f.id)}
-                              onChange={() => toggleGridMember(f.id)}
-                              style={{ margin: 0, verticalAlign: 'middle' }}
-                            /> Grid
-                          </label>
-                        )}
-                        <button onClick={() => removeSyntheticFeed(f.id)} style={{ fontSize: '8px', background: '#ff000033', border: '1px solid var(--ntd-error)', color: 'var(--ntd-error)', cursor: 'pointer' }}>X</button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {isAdminMode && (
-                  <>
-                    <h3 style={{ borderBottom: '1px solid var(--ntd-sh)', marginTop: '15px' }}>Grid Controls</h3>
-                    <div className="ntd-field" style={{ padding: '5px', fontSize: '10px' }}>
-                      <div style={{ marginBottom: '5px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <span>Include Admin:</span>
-                        <input
-                          type="checkbox"
-                          checked={gridMembers.has('local')}
-                          onChange={() => toggleGridMember('local')}
-                        />
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <span>Auto Layout:</span>
-                        <input
-                          type="checkbox"
-                          checked={gridAutoLayout}
-                          onChange={(e) => setGridAutoLayout(e.target.checked)}
-                        />
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '5px' }}>
-                        <span>Timestamp Watermark:</span>
-                        <input
-                          type="checkbox"
-                          checked={showWatermark}
-                          onChange={(e) => setShowWatermark(e.target.checked)}
-                        />
-                      </div>
-                      {showWatermark && (
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '5px' }}>
-                          <span>Watermark Pos:</span>
-                          <select
-                            value={watermarkPos}
-                            onChange={(e) => setWatermarkPos(e.target.value as any)}
-                            style={{ fontSize: '9px', padding: '1px' }}
-                          >
-                            <option value="top-left">Top Left</option>
-                            <option value="top-right">Top Right</option>
-                            <option value="bottom-left">Bottom Left</option>
-                            <option value="bottom-right">Bottom Right</option>
-                          </select>
-                        </div>
-                      )}
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '5px' }}>
-                        <span>Burn-in Settings:</span>
-                        <input
-                          type="checkbox"
-                          checked={showSettingsOverlay}
-                          onChange={(e) => setShowSettingsOverlay(e.target.checked)}
-                        />
-                      </div>
-                    </div>
-                  </>
-                )}
-
-                {isAdminMode && (
-                  <>
-                    <h3 style={{ borderBottom: '1px solid var(--ntd-sh)', marginTop: '15px' }}>Add RTMP Feed</h3>
-                    <div className="ntd-field" style={{ padding: '5px', fontSize: '10px', marginBottom: '10px' }}>
-                      <div style={{ marginBottom: '5px' }}>
-                        <input
-                          type="text"
-                          placeholder="Stream Key (e.g., guest1)"
-                          className="ntd-field"
-                          style={{ width: '100%', marginBottom: '2px', boxSizing: 'border-box' }}
-                          value={newFeedKey}
-                          onChange={(e) => setNewFeedKey(e.target.value)}
-                        />
-                        <input
-                          type="text"
-                          placeholder="Label (e.g., Guest Cam)"
-                          className="ntd-field"
-                          style={{ width: '100%', marginBottom: '5px', boxSizing: 'border-box' }}
-                          value={newFeedLabel}
-                          onChange={(e) => setNewFeedLabel(e.target.value)}
-                        />
-                        <button className="ntd-btn ntd-btn--go" style={{ width: '100%' }} onClick={addSyntheticFeed}>CONNECT EXT FEED</button>
-                      </div>
-                    </div>
-                  </>
-                )}
-
-                <h3 style={{ borderBottom: '1px solid var(--ntd-sh)' }}>Active RTMP Links</h3>
-                <div className="ntd-field" style={{ padding: '8px', fontSize: '10px', marginBottom: '10px', color: 'var(--ntd-live)', fontFamily: 'monospace' }}>
-                  {isGridShared && isConnected && (() => {
-                    const url = `rtmp://${serverStatus?.local || 'localhost'}/live/grid`;
-                    return (
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>GRID: {url}</span>
-                        <button onClick={() => navigator.clipboard.writeText(url)} title="Copy to clipboard" className="ntd-btn ntd-btn--go" style={{ fontSize: '8px', padding: '1px 5px', marginLeft: '4px', flexShrink: 0 }}>COPY</button>
-                      </div>
-                    );
-                  })()}
-                  {peers.filter(p => p.stream).map(p => {
-                    const url = `rtmp://${serverStatus?.local || 'localhost'}/live/${feedKey(p.name)}`;
-                    return (
-                      <div key={p.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2px' }}>
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{p.name.split(' ')[0]}: {url}</span>
-                        <button onClick={() => navigator.clipboard.writeText(url)} title="Copy to clipboard" className="ntd-btn ntd-btn--go" style={{ fontSize: '8px', padding: '1px 5px', marginLeft: '4px', flexShrink: 0 }}>COPY</button>
-                      </div>
-                    );
-                  })}
-                  {!isGridShared && peers.filter(p => p.stream).length === 0 && (
-                    <div style={{ color: 'var(--ntd-text-dim)' }}>No active broadcasts.</div>
-                  )}
-                </div>
-
-                <AdminWorkspace />
-              </div>
-              <ChatBox messages={chatMessages} onSendMessage={sendMessage} />
-            </div>
-            <div className="divider ntd" onMouseDown={startResizing}></div>
-          </>
-        )}
-
-        {/* Main Content Area */}
-        <div className="ntd" style={{ flex: 1, padding: '20px', overflowY: 'auto' }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        {/* ── ZONE 2: Stage (scrollable) ── */}
+        <div style={{ flex: 1, overflow: 'auto', padding: 12 }}>
           <div className="window ntd">
             <div className="window-title">
               <span>{isElectron ? 'Admin Video Hub' : 'Admin Monitor'}</span>
@@ -645,7 +425,20 @@ function AdminApp() {
                   />
                 )}
                 {peers.map((peer) => (
-                  <VideoFeed key={peer.id} stream={peer.stream} label={peer.name || `User ${peer.id.slice(0, 4)}`} serverLocalIP={serverStatus?.local} />
+                  <div key={peer.id} style={{ position: 'relative' }}>
+                    <VideoFeed stream={peer.stream} label={peer.name || `User ${peer.id.slice(0, 4)}`} serverLocalIP={serverStatus?.local} />
+                    {isAdminMode && (
+                      <div style={{ position: 'absolute', top: 4, right: 4, zIndex: 2 }}>
+                        <StageTileControls
+                          peerId={peer.id}
+                          isHost={isElectron}
+                          spotlighted={spotlightId === peer.id}
+                          onSpotlight={(id) => setSpotlightId(prev => prev === id ? null : id)}
+                          onKick={kickUser}
+                        />
+                      </div>
+                    )}
+                  </div>
                 ))}
               </div>
 
@@ -670,7 +463,136 @@ function AdminApp() {
             </div>
           </div>
         </div>
+
+        {/* ── ZONE 3: Persistent broadcast console dock ── */}
+        <BroadcastConsole />
       </div>
+
+      {/* ── ZONE 4: Drawers ── */}
+      <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} extra={
+        <>
+          {isAdminMode && (
+            <>
+              <h3 style={{ borderBottom: '1px solid var(--ntd-sh)', marginTop: '15px' }}>Grid Controls</h3>
+              <div className="ntd-field" style={{ padding: '5px', fontSize: '10px' }}>
+                <div style={{ marginBottom: '5px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span>Include Admin:</span>
+                  <input
+                    type="checkbox"
+                    checked={gridMembers.has('local')}
+                    onChange={() => toggleGridMember('local')}
+                  />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span>Auto Layout:</span>
+                  <input
+                    type="checkbox"
+                    checked={gridAutoLayout}
+                    onChange={(e) => setGridAutoLayout(e.target.checked)}
+                  />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '5px' }}>
+                  <span>Timestamp Watermark:</span>
+                  <input
+                    type="checkbox"
+                    checked={showWatermark}
+                    onChange={(e) => setShowWatermark(e.target.checked)}
+                  />
+                </div>
+                {showWatermark && (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '5px' }}>
+                    <span>Watermark Pos:</span>
+                    <select
+                      value={watermarkPos}
+                      onChange={(e) => setWatermarkPos(e.target.value as any)}
+                      style={{ fontSize: '9px', padding: '1px' }}
+                    >
+                      <option value="top-left">Top Left</option>
+                      <option value="top-right">Top Right</option>
+                      <option value="bottom-left">Bottom Left</option>
+                      <option value="bottom-right">Bottom Right</option>
+                    </select>
+                  </div>
+                )}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '5px' }}>
+                  <span>Burn-in Settings:</span>
+                  <input
+                    type="checkbox"
+                    checked={showSettingsOverlay}
+                    onChange={(e) => setShowSettingsOverlay(e.target.checked)}
+                  />
+                </div>
+              </div>
+            </>
+          )}
+
+          <h3 style={{ borderBottom: '1px solid var(--ntd-sh)', marginTop: '15px' }}>System Status</h3>
+          <div className="ntd-field" style={{ marginBottom: '10px', fontSize: '10px' }}>
+            <div><strong>NMS Server</strong>: Listening (1935/8000)</div>
+            <div><strong>WebRTC Bridge</strong>: Ready</div>
+            <div><strong>Virtual Cam</strong>: {allStreams.length > 0 ? 'Feeds Available' : 'No Input'}</div>
+            <div><strong>Active RTMP</strong>: {serverStatus?.rtmpCount || 0} Viewer(s)</div>
+          </div>
+        </>
+      } />
+
+      <ChatDrawer open={chatOpen} onClose={() => setChatOpen(false)} messages={chatMessages} onSendMessage={sendMessage} />
+
+      <NTDrawer open={recOpen} title="Recordings" onClose={() => setRecOpen(false)}>
+        <RecordingsTab />
+      </NTDrawer>
+
+      <NTDrawer open={addFeedOpen} title="Add RTMP Feed" onClose={() => setAddFeedOpen(false)}>
+        <div className="ntd-field" style={{ padding: '5px', fontSize: '10px', marginBottom: '10px' }}>
+          <div style={{ marginBottom: '5px' }}>
+            <input
+              type="text"
+              placeholder="Stream Key (e.g., guest1)"
+              className="ntd-field"
+              style={{ width: '100%', marginBottom: '2px', boxSizing: 'border-box' }}
+              value={newFeedKey}
+              onChange={(e) => setNewFeedKey(e.target.value)}
+            />
+            <input
+              type="text"
+              placeholder="Label (e.g., Guest Cam)"
+              className="ntd-field"
+              style={{ width: '100%', marginBottom: '5px', boxSizing: 'border-box' }}
+              value={newFeedLabel}
+              onChange={(e) => setNewFeedLabel(e.target.value)}
+            />
+            <button className="ntd-btn ntd-btn--go" style={{ width: '100%' }} onClick={addSyntheticFeed}>CONNECT EXT FEED</button>
+          </div>
+
+          {syntheticFeeds.length > 0 && (
+            <div style={{ marginTop: '8px', borderTop: '1px solid var(--ntd-sh)', paddingTop: '6px' }}>
+              {syntheticFeeds.map(f => (
+                <div key={f.id} style={{ borderBottom: '1px solid var(--ntd-sh)', padding: '2px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center' }}>
+                    <span style={{ marginRight: '5px' }}>📡</span>
+                    <span>{f.label}</span>
+                    {f.stream ?
+                      <span style={{ color: 'var(--ntd-live)', marginLeft: '5px', fontSize: '8px' }}>[LIVE]</span> :
+                      <span style={{ color: 'var(--ntd-warn)', marginLeft: '5px', fontSize: '8px' }}>[FETCHING]</span>
+                    }
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    <label style={{ fontSize: '8px', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={gridMembers.has(f.id)}
+                        onChange={() => toggleGridMember(f.id)}
+                        style={{ margin: 0, verticalAlign: 'middle' }}
+                      /> Grid
+                    </label>
+                    <button onClick={() => removeSyntheticFeed(f.id)} style={{ fontSize: '8px', background: '#ff000033', border: '1px solid var(--ntd-error)', color: 'var(--ntd-error)', cursor: 'pointer' }}>X</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </NTDrawer>
     </div>
     </AdminDataProvider>
   );
