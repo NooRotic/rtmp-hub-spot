@@ -9,6 +9,7 @@ const { createBroadcastOrchestrator } = require('./broadcast-orchestrator');
 const destinationStore = require('./destinationStore');
 const { extractSessionData } = require('./nms-session');
 const { createRoomGate } = require('./room-pin');
+const crypto = require('crypto');
 const path = require('path');
 const os = require('os');
 const https = require('https');
@@ -24,6 +25,11 @@ require('dotenv').config();
 
 // ─── Room PIN Gate ────────────────────────────────────────────────────────────
 const roomGate = createRoomGate();
+/** One-time secret minted at process start. Delivered to the Electron renderer
+ *  via IPC (get-host-token). The Admin sends it in join-room so the gate can
+ *  trust it without relying on socket address (which a Vite proxy collapses to
+ *  127.0.0.1, breaking the old loopback-based exemption). */
+const hostToken = crypto.randomBytes(24).toString('hex');
 const roomConfigPath = () => path.join(app.getPath('userData'), 'room-config.json');
 
 function loadRoomPin() {
@@ -378,8 +384,9 @@ initializeServer().then(({ nms, server, io }) => {
   io.on('connection', (socket) => {
     console.log('[Signaling] New socket connection:', socket.id);
     
-    socket.on('join-room', ({ roomId, userName, pin }) => {
-      const verdict = roomGate.check(socket.handshake.address, pin);
+    socket.on('join-room', ({ roomId, userName, pin, hostToken: clientHostToken }) => {
+      const trusted = !!(clientHostToken && clientHostToken === hostToken);
+      const verdict = roomGate.check(socket.handshake.address, pin, { trusted });
       if (!verdict.allowed) {
         socket.emit('join-denied', { reason: verdict.reason });
         if (verdict.lockout) socket.disconnect(true);
@@ -467,6 +474,8 @@ initializeServer().then(({ nms, server, io }) => {
   });
 
   ipcMain.handle('get-room-pin', () => ({ locked: roomGate.isLocked() }));
+
+  ipcMain.handle('get-host-token', () => hostToken);
 
   server.listen(SIGNALING_PORT, BIND_IP, () => {
     console.log(`Signaling server listening on HTTPS ${BIND_IP}:${SIGNALING_PORT}`);

@@ -20,8 +20,8 @@ export { isElectron };
  * @param {RTCIceServer[]} [options.iceServers] - Override default google ICE servers for NAT traversal.
  * @param {MediaStream|null} [options.overrideStream] - A synthetic MediaStream that circumvents the getUserMedia flow (used heavily by the Admin Grid).
  */
-export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?: string; userName?: string; cameraLabel?: string; captureVideo?: boolean; iceServers?: RTCIceServer[]; overrideStream?: MediaStream | null; pin?: string } = {}) => {
-  const { videoId, audioId, userName, cameraLabel, captureVideo, iceServers, overrideStream, pin } = options;
+export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?: string; userName?: string; cameraLabel?: string; captureVideo?: boolean; iceServers?: RTCIceServer[]; overrideStream?: MediaStream | null; pin?: string; hostToken?: string } = {}) => {
+  const { videoId, audioId, userName, cameraLabel, captureVideo, iceServers, overrideStream, pin, hostToken } = options;
   const [peers, setPeers] = useState<{ id: string; name: string; peer: any; stream?: MediaStream }[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [socketStatus, setSocketStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
@@ -65,6 +65,7 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
   const userNameRef = useRef(userName ?? '');
   const cameraLabelRef = useRef(cameraLabel ?? '');
   const pinRef = useRef(pin ?? '');
+  const hostTokenRef = useRef(hostToken ?? '');
 
   const addLocalStatus = (message: string) => {
     setChatMessages(prev => [...prev.slice(-49), {
@@ -148,7 +149,7 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
       const displayName = isElectron ? 'Admin Hub' : userNameRef.current;
       const fullIdentity = `${displayName} - ${cameraLabelRef.current || 'Hub'}`;
       const effectiveRoomId = 'main-hub';
-      socketRef.current.emit('join-room', { roomId: effectiveRoomId, userName: fullIdentity, pin: pinRef.current || '' });
+      socketRef.current.emit('join-room', { roomId: effectiveRoomId, userName: fullIdentity, pin: pinRef.current || '', hostToken: hostTokenRef.current || undefined });
       addLocalStatus(`Joined room: ${effectiveRoomId} as ${fullIdentity}`);
     });
 
@@ -537,6 +538,7 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
   useEffect(() => { userNameRef.current = userName ?? ''; }, [userName]);
   useEffect(() => { cameraLabelRef.current = cameraLabel ?? ''; }, [cameraLabel]);
   useEffect(() => { pinRef.current = pin ?? ''; }, [pin]);
+  useEffect(() => { hostTokenRef.current = hostToken ?? ''; }, [hostToken]);
 
   const isLive = isConnected && peers.some(p => p.stream);
 

@@ -41,6 +41,7 @@ const INVOKE_CHANNELS = new Set([
   'bindings:set',
   'bindings:remove',
   'get-room-pin',
+  'get-host-token',
 ]);
 
 // Main -> renderer events the renderer subscribes to.

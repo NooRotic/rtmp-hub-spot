@@ -113,6 +113,15 @@ function AdminApp() {
 
   const { locked: roomLocked, setPin: setRoomPin, clearPin: clearRoomPin } = useRoomPin(ipc);
 
+  // Host token — minted by the Electron main process at startup and delivered
+  // via IPC. Sent in join-room so the PIN gate can trust the Electron host
+  // without relying on socket address (which the Vite proxy collapses to
+  // 127.0.0.1, defeating the old loopback-based exemption).
+  const [hostToken, setHostToken] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    if (ipc) ipc.invoke('get-host-token').then((t: string) => setHostToken(t)).catch(() => {});
+  }, [ipc]);
+
   const { relays } = useRelays(ipc);
   const {
     destinations,
@@ -152,7 +161,8 @@ function AdminApp() {
     userName: userName,
     cameraLabel: broadcastLabel,
     captureVideo: adminCamActive,
-    overrideStream: isGridShared ? gridStream : null
+    overrideStream: isGridShared ? gridStream : null,
+    hostToken,
   });
 
   const { activeRecordings, recNow, startRecording, stopRecording, openRecordingsDir } = useRecordings(ipc, recordingStopped);
