@@ -47,9 +47,9 @@ A horizontal deck under the stage = the broadcast I/O, always visible:
 
 This unifies three old sidebar/tab sections (Active RTMP Links + Live Publishers + RTMP Viewers) into one console answering "are my feeds healthy and is OBS getting them?" at a glance, plus the restream outputs.
 
-### §4 Chat drawer
-Today's `ChatBox`, moved into a right-side **collapsible drawer** toggled from the top bar.
-- **Open by default**, but the open/closed state **persists** (localStorage, e.g. `hub-chat-open`): once the admin collapses it, it **stays collapsed** across reloads until reopened. (Default `true` on first run.)
+### §4 Chat dock
+Today's `ChatBox`, **docked into the bottom zone beside the Broadcast Console** (a side-by-side split, NOT a stage overlay): the bottom row is `[ console (flex) | chat (~320px) ]`, so source health stays glance-able *while* chatting. Toggled (collapse/expand the chat column) from the top-bar 💬 and a header collapse button.
+- **Open by default**, but the open/collapsed state **persists** (localStorage `hub-chat-open`): once the admin collapses it, it **stays collapsed** across reloads until reopened. (Default `true` on first run.)
 - The toggle shows an **unread indicator** (dot/count) that increments on new messages **while collapsed** and clears on open. (Requires tracking last-seen vs incoming `chatMessages`; the badge is only meaningful when closed, since an open drawer shows the messages.)
 
 ### §5 Settings drawer

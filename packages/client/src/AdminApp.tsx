@@ -13,7 +13,7 @@ import { deriveSources } from './admin/sources';
 import { AdminDataProvider, type AdminData } from './admin/AdminDataProvider';
 import { AdminTopBar } from './admin/AdminTopBar';
 import { SettingsDrawer } from './admin/drawers/SettingsDrawer';
-import { ChatDrawer } from './admin/drawers/ChatDrawer';
+import { ChatPanel } from './admin/drawers/ChatPanel';
 import { useChatUnread } from './admin/hooks/useChatUnread';
 import { BroadcastConsole } from './admin/console/BroadcastConsole';
 import { StageTileControls } from './admin/stage/StageTileControls';
@@ -457,8 +457,19 @@ function AdminApp() {
           </div>
         </div>
 
-        {/* ── ZONE 3: Persistent broadcast console dock ── */}
-        <BroadcastConsole />
+        {/* ── ZONE 3: Persistent broadcast console + docked chat (side by side) ── */}
+        <div style={{ display: 'flex', alignItems: 'stretch', overflow: 'hidden' }}>
+          <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+            <BroadcastConsole />
+          </div>
+          {chatOpen && (
+            <ChatPanel
+              messages={chatMessages}
+              onSendMessage={sendMessage}
+              onClose={() => setChatOpen(false)}
+            />
+          )}
+        </div>
       </div>
 
       {/* ── ZONE 4: Drawers ── */}
@@ -529,7 +540,6 @@ function AdminApp() {
         </>
       } />
 
-      <ChatDrawer open={chatOpen} onClose={() => setChatOpen(false)} messages={chatMessages} onSendMessage={sendMessage} />
 
       <NTDrawer open={recOpen} title="Recordings" onClose={() => setRecOpen(false)}>
         <RecordingsTab />

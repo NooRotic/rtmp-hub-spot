@@ -16,3 +16,6 @@ coverage/
 
 # Visual-companion brainstorm mockups (local only)
 .superpowers/
+
+# Local debug screenshots (not for the repo)
+docs/debugging/
