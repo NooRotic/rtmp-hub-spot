@@ -1,4 +1,16 @@
-const { app, BrowserWindow, ipcMain, shell, session } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, session, dialog } = require('electron');
+
+// ── Persistent logging ───────────────────────────────────────────────────────
+// Route all console.* + uncaught errors to a file under {userData}/logs so that
+// "broadcast failed" reports are debuggable after the fact. electron-log writes
+// to both the terminal and {userData}/logs/main.log.
+const log = require('electron-log/main');
+log.initialize();
+log.transports.file.level = 'info';
+Object.assign(console, log.functions); // existing console.* calls now also persist to file
+process.on('uncaughtException', (e) => { try { log.error('[uncaughtException]', e); } catch (_) { /* noop */ } });
+process.on('unhandledRejection', (e) => { try { log.error('[unhandledRejection]', e); } catch (_) { /* noop */ } });
+
 const { isLoopbackHost } = require('./cert-trust');
 const { buildFfmpegArgs } = require('./ffmpeg-args');
 const { createPipeManager } = require('./pipe-manager');
@@ -496,7 +508,17 @@ initializeServer().then(({ nms, server, io }) => {
     if (nms) nms.stop();
   });
 }).catch(err => {
-  console.error('[CRITICAL] Server Initialization Failed:', err);
+  log.error('[CRITICAL] Server Initialization Failed:', err);
+  try {
+    dialog.showErrorBox(
+      'RTMP Hub Spot — startup failed',
+      `The media server could not start:\n\n${(err && err.message) ? err.message : String(err)}\n\n` +
+      `A required port may already be in use (RTMP 1935, signaling 4001, or NMS HTTP 8000). ` +
+      `Close other streaming apps (OBS/XSplit) or another running copy of this app, then relaunch.\n\n` +
+      `Full details were written to the application log file.`
+    );
+  } catch (_) { /* dialog may be unavailable before app is ready */ }
+  app.quit();
 });
 
 const { PassThrough } = require('stream');
