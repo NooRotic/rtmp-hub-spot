@@ -217,9 +217,23 @@ function AdminApp() {
     });
 
     return () => {
-      // Cleanup happens upon manual removal
+      // Per-feed players are torn down on manual removal; full teardown is the
+      // unmount-only effect below (NOT here — this cleanup runs every serverStatus
+      // tick, which would churn live feeds every few seconds).
     };
   }, [syntheticFeeds, serverStatus]);
+
+  // Tear down all synthetic-feed mpegts players + video elements on UNMOUNT only.
+  useEffect(() => {
+    const pMap = feedPlayersRef.current;
+    return () => {
+      pMap?.forEach(({ player, video }) => {
+        try { player?.destroy?.(); } catch (_) { /* noop */ }
+        try { video?.remove?.(); } catch (_) { /* noop */ }
+      });
+      pMap?.clear();
+    };
+  }, []);
 
   const addSyntheticFeed = () => {
     if (!newFeedKey.trim()) return;
