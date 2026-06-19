@@ -10,11 +10,13 @@ import { useState, useCallback } from 'react';
  * `showGrid`'s initial value is `isElectron` (grid defaults ON for the Electron
  * host, OFF for the browser monitor), so the hook accepts `isElectron` as an arg.
  *
- * NOTE (Phase 1a — behavior preserving): `gridMembers` is still NOT read by
- * `allStreams`; `addGridMember`/`removeGridMember`/`toggleGridMember` keep it
- * populated exactly as today (a feed auto-joins on live, the checkboxes toggle it),
- * but no membership filter is applied to the grid yet. Wiring it into the grid is
- * Phase 1b (Decision Gate D1-B).
+ * NOTE (Phase 1b — Decision Gate D1-B): `gridMembers` now GATES the composite
+ * grid in AdminApp's `allStreams` memo. The local tile is included only when
+ * `gridMembers.has('local')` (Settings "Include Admin"), and each synthetic feed
+ * tile only when `gridMembers.has(feed.id)` (per-feed "Grid"); peers are always
+ * included (default-in, no per-peer checkbox). The Set is still seeded with 'local'
+ * and feeds auto-add on live, so the DEFAULT grid is visually identical to before —
+ * only unchecking a membership checkbox now removes a tile.
  */
 export function useGridState(isElectron: boolean): {
   gridMembers: Set<string>;

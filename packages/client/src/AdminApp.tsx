@@ -173,10 +173,18 @@ function AdminApp() {
     }
   }, [isElectron, ipc]);
 
-  // NOTE: every connected peer appears in the grid (intended). `allStreams` is the
-  // single source for GridView — there is no per-peer grid-membership filter.
+  // `allStreams` is the single source for GridView. Grid membership (`gridMembers`)
+  // now gates which tiles compose the grid:
+  //  - PEERS are always included (default-in) — there is no per-peer membership
+  //    checkbox, so they must NOT be filtered by gridMembers.
+  //  - LOCAL ('local') is included only when its existing condition holds AND
+  //    gridMembers.has('local') (the Settings "Include Admin" checkbox).
+  //  - FEEDS are included only when streamed AND gridMembers.has(feed.id) (the
+  //    per-feed "Grid" checkbox).
+  // gridMembers is seeded with 'local' and feeds auto-add on live, so the default
+  // grid is visually identical to before — only unchecking now removes a tile.
   const allStreams = useMemo(() => [
-    ...(userStream && (adminCamActive || isGridShared) ? [{
+    ...(userStream && (adminCamActive || isGridShared) && gridMembers.has('local') ? [{
       id: 'local',
       stream: userStream,
       label: `Admin Hub - ${broadcastLabel}`
@@ -186,12 +194,12 @@ function AdminApp() {
       stream: p.stream as MediaStream,
       label: p.name
     })),
-    ...syntheticFeeds.filter(f => f.stream).map(f => ({
+    ...syntheticFeeds.filter(f => f.stream && gridMembers.has(f.id)).map(f => ({
       id: f.id,
       stream: f.stream as MediaStream,
       label: `[Feed] ${f.label}`
     }))
-  ], [userStream, adminCamActive, isGridShared, broadcastLabel, peers, syntheticFeeds]);
+  ], [userStream, adminCamActive, isGridShared, broadcastLabel, peers, syntheticFeeds, gridMembers]);
 
   const adminData: AdminData = useMemo(() => ({
     socketStatus,
