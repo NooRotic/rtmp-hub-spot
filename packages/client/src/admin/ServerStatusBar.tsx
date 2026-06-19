@@ -1,11 +1,12 @@
-import { useAdminData } from './AdminDataProvider';
+import { useAdminActions, useAdminTelemetry } from './AdminDataProvider';
 import { serverRollup } from './serverRollup';
 import { StatusDot } from '../ui/StatusDot';
 import { clientJoinUrl } from './clientUrl';
 
 /** L1 server status strip (spec §4). Always visible; consumes useAdminData. */
 export function ServerStatusBar() {
-  const { socketStatus, isConnected, serverStatus, sources, relays, roomAccess } = useAdminData();
+  const { socketStatus, isConnected, serverStatus, sources, relays } = useAdminTelemetry();
+  const { roomAccess } = useAdminActions();
   const { liveSources, activeDestinations } = serverRollup(sources, relays);
 
   const signalState = isConnected ? 'live' : socketStatus === 'connecting' ? 'connecting' : 'error';

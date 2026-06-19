@@ -1,4 +1,4 @@
-import { useAdminData } from '../AdminDataProvider';
+import { useAdminActions, useAdminTelemetry } from '../AdminDataProvider';
 import { StatusTag } from '../../ui/StatusTag';
 import { NTButton } from '../../ui/NTButton';
 import { RtmpPlayerTile } from '../../components/RtmpPlayerTile';
@@ -6,7 +6,8 @@ import { RtmpPlayerTile } from '../../components/RtmpPlayerTile';
 /** Dark-NT Live operating view (spec §4): FFmpeg health + Live Publishers + RTMP Viewers.
  *  Behavior mirrors the legacy sidebar sections; styling refined live. */
 export function LiveTab() {
-  const { ffmpeg, serverStatus, recordings, previewOpen, setPreviewOpen, refreshTelemetry } = useAdminData();
+  const { ffmpeg, serverStatus, recordings } = useAdminTelemetry();
+  const { previewOpen, setPreviewOpen, refreshTelemetry } = useAdminActions();
   const publishers = serverStatus?.rtmpPublishers ?? [];
   const sessions = serverStatus?.rtmpSessions ?? [];
   const isRecording = (key: string) => recordings.active.some((r) => r.streamKey === key);

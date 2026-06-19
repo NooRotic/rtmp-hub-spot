@@ -10,7 +10,12 @@ import { useRelays } from './hooks/useRelays';
 import { useDestinations } from './hooks/useDestinations';
 import { useRoomPin } from './hooks/useRoomPin';
 import { deriveSources } from './admin/sources';
-import { AdminDataProvider, type AdminData } from './admin/AdminDataProvider';
+import {
+  AdminActionsContext,
+  AdminTelemetryContext,
+  type AdminActions,
+  type AdminTelemetry,
+} from './admin/AdminDataProvider';
 import { AdminTopBar } from './admin/AdminTopBar';
 import { useChatUnread } from './admin/hooks/useChatUnread';
 import { StageZone } from './admin/zones/StageZone';
@@ -196,16 +201,14 @@ function AdminApp() {
     }))
   ], [userStream, adminCamActive, isGridShared, broadcastLabel, peers, syntheticFeeds, gridMembers]);
 
-  const adminData: AdminData = useMemo(() => ({
-    socketStatus,
-    isConnected,
-    serverStatus: (serverStatus ?? null) as AdminData['serverStatus'],
-    sources: deriveSources(serverStatus ?? null, bindings),
-    relays,
+  // ── Context split (Phase 3) ──────────────────────────────────────────────
+  // Two memos with DISJOINT dep arrays so the STABLE (actions) value's identity
+  // survives a telemetry tick. The actions memo MUST NOT depend on any volatile
+  // field (socketStatus/isConnected/serverStatus/relays/ffmpeg*/activeRecordings/
+  // recNow/sources) — only on config, action callbacks, and preview state.
+  const actionsValue: AdminActions = useMemo(() => ({
     destinations,
     bindings,
-    ffmpeg: { status: ffmpegStatus, stats: ffmpegStats },
-    recordings: { active: activeRecordings, now: recNow, start: startRecording, stop: stopRecording, openDir: openRecordingsDir },
     settings: {
       bitrate: broadcastBitrate, setBitrate: setBroadcastBitrate,
       preset: broadcastPreset, setPreset: setBroadcastPreset,
@@ -220,17 +223,30 @@ function AdminApp() {
     setPreviewOpen,
     refreshTelemetry,
   }), [
-    socketStatus, isConnected, serverStatus, bindings, relays, destinations,
-    ffmpegStatus, ffmpegStats, activeRecordings, recNow,
-    startRecording, stopRecording, openRecordingsDir,
+    destinations, bindings,
     broadcastBitrate, setBroadcastBitrate, broadcastPreset, setBroadcastPreset, hwAccel, setHwAccel, detectedEncoder,
     addDestination, updateDestination, removeDestination, setBinding, removeBinding, refreshDestinations,
     roomLocked, setRoomPin, clearRoomPin,
     previewOpen, setPreviewOpen, refreshTelemetry,
   ]);
 
+  const telemetryValue: AdminTelemetry = useMemo(() => ({
+    socketStatus,
+    isConnected,
+    serverStatus: (serverStatus ?? null) as AdminTelemetry['serverStatus'],
+    sources: deriveSources(serverStatus ?? null, bindings),
+    relays,
+    ffmpeg: { status: ffmpegStatus, stats: ffmpegStats },
+    recordings: { active: activeRecordings, now: recNow, start: startRecording, stop: stopRecording, openDir: openRecordingsDir },
+  }), [
+    socketStatus, isConnected, serverStatus, bindings, relays,
+    ffmpegStatus, ffmpegStats, activeRecordings, recNow,
+    startRecording, stopRecording, openRecordingsDir,
+  ]);
+
   return (
-    <AdminDataProvider value={adminData}>
+    <AdminActionsContext.Provider value={actionsValue}>
+    <AdminTelemetryContext.Provider value={telemetryValue}>
     <div className="ntd" style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
       {/* Draggable Title Bar (Electron Only) */}
       {isElectron && (
@@ -322,7 +338,8 @@ function AdminApp() {
         }}
       />
     </div>
-    </AdminDataProvider>
+    </AdminTelemetryContext.Provider>
+    </AdminActionsContext.Provider>
   );
 }
 
