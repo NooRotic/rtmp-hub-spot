@@ -20,6 +20,18 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: './src/test/setup.ts',
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'clover', 'json-summary'],
+      // Per-file gate on AdminApp only — NO global threshold (intentional).
+      // Floors sit ~5 points under the measured coverage produced by the Phase 0
+      // smoke/feeds characterization tests (Stmts/Lines 86.73, Branches 83.78,
+      // Funcs 58.62) so they catch regressions without being brittle. NEVER 100 —
+      // the smoke tests deliberately do not exercise every handler.
+      thresholds: {
+        'src/AdminApp.tsx': { statements: 81, functions: 53, lines: 81, branches: 78 },
+      },
+    },
   },
   define: {
     global: 'window',
