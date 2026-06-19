@@ -12,15 +12,10 @@ import { useRoomPin } from './hooks/useRoomPin';
 import { deriveSources } from './admin/sources';
 import { AdminDataProvider, type AdminData } from './admin/AdminDataProvider';
 import { AdminTopBar } from './admin/AdminTopBar';
-import { SettingsDrawer } from './admin/drawers/SettingsDrawer';
-import { ChatPanel } from './admin/drawers/ChatPanel';
 import { useChatUnread } from './admin/hooks/useChatUnread';
-import { BroadcastConsole } from './admin/console/BroadcastConsole';
-import { StageTileControls } from './admin/stage/StageTileControls';
-import { RecordingsTab } from './admin/tabs/RecordingsTab';
-import { NTDrawer } from './ui/NTDrawer';
-import VideoFeed from './components/VideoFeed';
-import GridView from './components/GridView';
+import { StageZone } from './admin/zones/StageZone';
+import { ConsoleZone } from './admin/zones/ConsoleZone';
+import { AdminDrawers } from './admin/zones/AdminDrawers';
 import { useDrawerState } from './hooks/useDrawerState';
 import { useOverlaySettings } from './hooks/useOverlaySettings';
 import { useGridState } from './hooks/useGridState';
@@ -262,271 +257,70 @@ function AdminApp() {
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {/* ── ZONE 2: Stage (scrollable) ── */}
-        <div style={{ flex: 1, overflow: 'auto', padding: 12 }}>
-          <div className="window ntd">
-            <div className="window-title">
-              <span>{isElectron ? 'Admin Video Hub' : 'Admin Monitor'}</span>
-            </div>
-            <div className="window-content">
-              <div className="inset-field" style={{ marginBottom: '15px' }}>
-                <div style={{ display: 'flex', gap: '10px', marginBottom: '10px', flexWrap: 'wrap' }}>
-                  <div style={{ flex: '1 1 auto', minWidth: '120px' }}>
-                    <label>Camera: </label>
-                    <select className="ntd-field" style={{ width: '100%', boxSizing: 'border-box' }} value={selectedVideo} onChange={(e) => setSelectedVideo(e.target.value)}>
-                      <option value="">{isElectron ? 'Off' : 'Default Camera'}</option>
-                      {videoDevices.map(d => <option key={d.deviceId} value={d.deviceId}>{d.label || 'Camera'}</option>)}
-                    </select>
-                  </div>
-                  <div style={{ flex: '1 1 auto', minWidth: '120px' }}>
-                    <label>Mic: </label>
-                    <select className="ntd-field" style={{ width: '100%', boxSizing: 'border-box' }} value={selectedAudio} onChange={(e) => setSelectedAudio(e.target.value)}>
-                      <option value="">{isElectron ? 'Off' : 'Default Mic'}</option>
-                      {audioDevices.map(d => <option key={d.deviceId} value={d.deviceId}>{d.label || 'Microphone'}</option>)}
-                    </select>
-                  </div>
-                </div>
-                {isElectron ? (
-                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                    <button
-                      className="ntd-btn"
-                      onClick={() => setAdminCamActive(!adminCamActive)}
-                      style={{ padding: '2px 20px', backgroundColor: adminCamActive ? 'var(--ntd-error)' : 'var(--ntd-go)' }}
-                    >
-                      {adminCamActive ? 'STOP ADMIN CAMERA' : 'START ADMIN CAMERA'}
-                    </button>
-                    <button
-                      className="ntd-btn"
-                      onClick={() => setShowGrid(!showGrid)}
-                      style={{ padding: '2px 20px', backgroundColor: showGrid ? 'var(--ntd-go)' : 'var(--ntd-face-2)' }}
-                    >
-                      {showGrid ? 'DISABLE GRID VIEW' : 'ENABLE GRID VIEW'}
-                    </button>
-                    <button
-                      className="ntd-btn"
-                      onClick={() => setIsGridShared(!isGridShared)}
-                      style={{ padding: '2px 20px', backgroundColor: isGridShared ? 'var(--ntd-error)' : 'var(--ntd-go)' }}
-                    >
-                      {isGridShared ? 'STOP SHARING GRID' : 'SHARE GRID TO ALL'}
-                    </button>
-                    <span style={{ fontSize: '10px', color: 'var(--ntd-text-dim)' }}> (Visible to all connected clients)</span>
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '4px 0' }}>
-                    <span style={{ background: 'var(--ntd-navy-b)', color: '#fff', padding: '3px 10px', fontFamily: 'monospace', fontSize: '10px', letterSpacing: '1px' }}>
-                      ◈ MONITOR MODE
-                    </span>
-                    <span style={{ fontSize: '10px', color: 'var(--ntd-text-dim)' }}>
-                      Connected as Admin Monitor. Broadcast controls require the Electron app.
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
-                {cameraError && !userStream && (
-                  <div role="alert" style={{
-                    flex: '1 1 100%', display: 'flex', alignItems: 'center', gap: '14px',
-                    padding: '16px 18px', background: 'var(--ntd-face-2)',
-                    border: '2px solid var(--ntd-error)', color: 'var(--ntd-text)',
-                  }}>
-                    <span aria-hidden style={{ fontSize: '30px', lineHeight: 1, color: 'var(--ntd-error)' }}>⚠</span>
-                    <div>
-                      <div style={{ fontWeight: 'bold', color: 'var(--ntd-error)', letterSpacing: '1px' }}>CAMERA UNAVAILABLE</div>
-                      <div style={{ fontSize: '12px', marginTop: '3px' }}>{cameraError}</div>
-                    </div>
-                  </div>
-                )}
-                {userStream && (
-                  <VideoFeed
-                    stream={userStream}
-                    label="Admin Hub (Self)"
-                    isLocal
-                    isVideoEnabled={isVideoEnabled}
-                    setIsVideoEnabled={setIsVideoEnabled}
-                    isAudioEnabled={isAudioEnabled}
-                    setIsAudioEnabled={setIsAudioEnabled}
-                    serverLocalIP={serverStatus?.local}
-                  />
-                )}
-                {peers.map((peer) => (
-                  <div key={peer.id} style={{ position: 'relative' }}>
-                    <VideoFeed stream={peer.stream} label={peer.name || `User ${peer.id.slice(0, 4)}`} serverLocalIP={serverStatus?.local} />
-                    {isAdminMode && (
-                      <div style={{ position: 'absolute', top: 4, right: 4, zIndex: 2 }}>
-                        <StageTileControls
-                          peerId={peer.id}
-                          isHost={isElectron}
-                          spotlighted={spotlightId === peer.id}
-                          onSpotlight={(id) => setSpotlightId(prev => prev === id ? null : id)}
-                          onKick={kickUser}
-                        />
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              {showGrid && allStreams.length > 0 && (
-                <GridView
-                  streams={isGridShared ? allStreams.filter((s: any) => s.id !== 'local') : allStreams}
-                  onStreamUpdate={setGridStream}
-                  broadcastSettings={{
-                    bitrate: broadcastBitrate,
-                    preset: broadcastPreset,
-                    hwAccel: hwAccel
-                  }}
-                  autoLayout={gridAutoLayout}
-                  showWatermark={showWatermark}
-                  watermarkPos={watermarkPos}
-                  showSettingsOverlay={showSettingsOverlay}
-                  serverLocalIP={serverStatus?.local}
-                  spotlightId={spotlightId ?? undefined}
-                />
-              )}
-
-            </div>
-          </div>
-        </div>
+        <StageZone
+          isElectron={isElectron}
+          isAdminMode={isAdminMode}
+          deviceControls={{
+            videoDevices, audioDevices,
+            selectedVideo, setSelectedVideo,
+            selectedAudio, setSelectedAudio,
+          }}
+          broadcastControls={{
+            adminCamActive, setAdminCamActive,
+            showGrid, setShowGrid,
+            isGridShared, setIsGridShared,
+          }}
+          selfFeed={{
+            cameraError, userStream,
+            isVideoEnabled, setIsVideoEnabled,
+            isAudioEnabled, setIsAudioEnabled,
+            serverLocalIP: serverStatus?.local,
+          }}
+          peerControls={{ peers, spotlightId, setSpotlightId, kickUser }}
+          gridControls={{
+            allStreams, setGridStream,
+            broadcastBitrate, broadcastPreset, hwAccel,
+            gridAutoLayout, showWatermark, watermarkPos, showSettingsOverlay,
+          }}
+        />
 
         {/* ── ZONE 3: Persistent broadcast console + docked chat (side by side) ── */}
-        <div style={{ display: 'flex', alignItems: 'stretch', overflow: 'hidden' }}>
-          <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
-            <BroadcastConsole />
-          </div>
-          {chatOpen && (
-            <ChatPanel
-              messages={chatMessages}
-              onSendMessage={sendMessage}
-              onClose={() => setChatOpen(false)}
-            />
-          )}
-        </div>
+        <ConsoleZone
+          chatOpen={chatOpen}
+          chatMessages={chatMessages}
+          onSendMessage={sendMessage}
+          onCloseChat={() => setChatOpen(false)}
+        />
       </div>
 
       {/* ── ZONE 4: Drawers ── */}
-      <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} extra={
-        <>
-          {isAdminMode && (
-            <>
-              <h3 style={{ borderBottom: '1px solid var(--ntd-sh)', marginTop: '15px' }}>Grid Controls</h3>
-              <div className="ntd-field" style={{ padding: '5px', fontSize: '10px' }}>
-                <div style={{ marginBottom: '5px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span>Include Admin:</span>
-                  <input
-                    type="checkbox"
-                    checked={gridMembers.has('local')}
-                    onChange={() => toggleGridMember('local')}
-                  />
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span>Auto Layout:</span>
-                  <input
-                    type="checkbox"
-                    checked={gridAutoLayout}
-                    onChange={(e) => setGridAutoLayout(e.target.checked)}
-                  />
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '5px' }}>
-                  <span>Timestamp Watermark:</span>
-                  <input
-                    type="checkbox"
-                    checked={showWatermark}
-                    onChange={(e) => setShowWatermark(e.target.checked)}
-                  />
-                </div>
-                {showWatermark && (
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '5px' }}>
-                    <span>Watermark Pos:</span>
-                    <select
-                      value={watermarkPos}
-                      onChange={(e) => setWatermarkPos(e.target.value as any)}
-                      style={{ fontSize: '9px', padding: '1px' }}
-                    >
-                      <option value="top-left">Top Left</option>
-                      <option value="top-right">Top Right</option>
-                      <option value="bottom-left">Bottom Left</option>
-                      <option value="bottom-right">Bottom Right</option>
-                    </select>
-                  </div>
-                )}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '5px' }}>
-                  <span>Burn-in Settings:</span>
-                  <input
-                    type="checkbox"
-                    checked={showSettingsOverlay}
-                    onChange={(e) => setShowSettingsOverlay(e.target.checked)}
-                  />
-                </div>
-              </div>
-            </>
-          )}
-
-          <h3 style={{ borderBottom: '1px solid var(--ntd-sh)', marginTop: '15px' }}>System Status</h3>
-          <div className="ntd-field" style={{ marginBottom: '10px', fontSize: '10px' }}>
-            <div><strong>NMS Server</strong>: Listening (1935/8000)</div>
-            <div><strong>WebRTC Bridge</strong>: Ready</div>
-            <div><strong>Virtual Cam</strong>: {allStreams.length > 0 ? 'Feeds Available' : 'No Input'}</div>
-            <div><strong>Active RTMP</strong>: {serverStatus?.rtmpCount || 0} Viewer(s)</div>
-          </div>
-        </>
-      } />
-
-
-      <NTDrawer open={recOpen} title="Recordings" onClose={() => setRecOpen(false)}>
-        <RecordingsTab />
-      </NTDrawer>
-
-      <NTDrawer open={addFeedOpen} title="Add RTMP Feed" onClose={() => setAddFeedOpen(false)}>
-        <div className="ntd-field" style={{ padding: '5px', fontSize: '10px', marginBottom: '10px' }}>
-          <div style={{ marginBottom: '5px' }}>
-            <input
-              type="text"
-              placeholder="Stream Key (e.g., guest1)"
-              className="ntd-field"
-              style={{ width: '100%', marginBottom: '2px', boxSizing: 'border-box' }}
-              value={newFeedKey}
-              onChange={(e) => setNewFeedKey(e.target.value)}
-            />
-            <input
-              type="text"
-              placeholder="Label (e.g., Guest Cam)"
-              className="ntd-field"
-              style={{ width: '100%', marginBottom: '5px', boxSizing: 'border-box' }}
-              value={newFeedLabel}
-              onChange={(e) => setNewFeedLabel(e.target.value)}
-            />
-            <button className="ntd-btn ntd-btn--go" style={{ width: '100%' }} onClick={addSyntheticFeed}>CONNECT EXT FEED</button>
-          </div>
-
-          {syntheticFeeds.length > 0 && (
-            <div style={{ marginTop: '8px', borderTop: '1px solid var(--ntd-sh)', paddingTop: '6px' }}>
-              {syntheticFeeds.map(f => (
-                <div key={f.id} style={{ borderBottom: '1px solid var(--ntd-sh)', padding: '2px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div style={{ display: 'flex', alignItems: 'center' }}>
-                    <span style={{ marginRight: '5px' }}>📡</span>
-                    <span>{f.label}</span>
-                    {f.stream ?
-                      <span style={{ color: 'var(--ntd-live)', marginLeft: '5px', fontSize: '8px' }}>[LIVE]</span> :
-                      <span style={{ color: 'var(--ntd-warn)', marginLeft: '5px', fontSize: '8px' }}>[FETCHING]</span>
-                    }
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                    <label style={{ fontSize: '8px', cursor: 'pointer' }}>
-                      <input
-                        type="checkbox"
-                        checked={gridMembers.has(f.id)}
-                        onChange={() => toggleGridMember(f.id)}
-                        style={{ margin: 0, verticalAlign: 'middle' }}
-                      /> Grid
-                    </label>
-                    <button onClick={() => removeSyntheticFeed(f.id)} style={{ fontSize: '8px', background: '#ff000033', border: '1px solid var(--ntd-error)', color: 'var(--ntd-error)', cursor: 'pointer' }}>X</button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </NTDrawer>
+      <AdminDrawers
+        drawers={{
+          settingsOpen, recOpen, addFeedOpen,
+          onCloseSettings: () => setSettingsOpen(false),
+          onCloseRecordings: () => setRecOpen(false),
+          onCloseAddFeed: () => setAddFeedOpen(false),
+        }}
+        settingsControls={{
+          isAdminMode,
+          includeAdmin: gridMembers.has('local'),
+          toggleGridMember,
+          gridAutoLayout, setGridAutoLayout,
+          showWatermark, setShowWatermark,
+          watermarkPos, setWatermarkPos,
+          showSettingsOverlay, setShowSettingsOverlay,
+          streamCount: allStreams.length,
+          rtmpCount: serverStatus?.rtmpCount || 0,
+        }}
+        feedControls={{
+          newFeedKey, setNewFeedKey,
+          newFeedLabel, setNewFeedLabel,
+          addSyntheticFeed, removeSyntheticFeed,
+          syntheticFeeds,
+          isGridMember: (id: string) => gridMembers.has(id),
+          toggleGridMember,
+        }}
+      />
     </div>
     </AdminDataProvider>
   );
