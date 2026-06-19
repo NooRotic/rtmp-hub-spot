@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useWebRTC } from './hooks/useWebRTC';
 import { useMediaDevices } from './hooks/useMediaDevices';
 import { usePersistence } from './hooks/usePersistence';
@@ -21,8 +21,10 @@ import { RecordingsTab } from './admin/tabs/RecordingsTab';
 import { NTDrawer } from './ui/NTDrawer';
 import VideoFeed from './components/VideoFeed';
 import GridView from './components/GridView';
-import mpegts from 'mpegts.js';
-import { localFlvUrl } from './components/RtmpPlayerTile';
+import { useDrawerState } from './hooks/useDrawerState';
+import { useOverlaySettings } from './hooks/useOverlaySettings';
+import { useGridState } from './hooks/useGridState';
+import { useSyntheticFeeds } from './hooks/useSyntheticFeeds';
 
 /**
  * The Host/Admin dashboard — either Electron (full broadcast console) or a
@@ -47,24 +49,23 @@ function AdminApp() {
   }, [isElectron]);
 
   // Zone open-state (drawers)
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [recOpen, setRecOpen] = useState(false);
-  const [addFeedOpen, setAddFeedOpen] = useState(false);
+  const {
+    settingsOpen, recOpen, addFeedOpen,
+    setSettingsOpen, setRecOpen, setAddFeedOpen,
+  } = useDrawerState();
 
-  // Grid management state
-  const [gridMembers, setGridMembers] = useState<Set<string>>(new Set(['local']));
-  const [gridAutoLayout, setGridAutoLayout] = useState(true);
-  const [spotlightId, setSpotlightId] = useState<string | null>(null);
-  const [previewOpen, setPreviewOpen] = useState<Set<string>>(new Set());
+  // Grid management state (membership Set + display/share toggles).
+  // showGrid defaults to isElectron, so the hook takes isElectron as an arg.
+  const {
+    gridMembers, addGridMember, removeGridMember, toggleGridMember,
+    gridAutoLayout, setGridAutoLayout,
+    spotlightId, setSpotlightId,
+    previewOpen, setPreviewOpen,
+    showGrid, setShowGrid,
+    gridStream, setGridStream,
+    isGridShared, setIsGridShared,
+  } = useGridState(isElectron);
 
-  const toggleGridMember = (id: string) => {
-    setGridMembers(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
   const [selectedVideo, setSelectedVideo] = useState<string>(localStorage.getItem('hub-video-device') || '');
   const [selectedAudio, setSelectedAudio] = useState<string>(localStorage.getItem('hub-audio-device') || '');
   const [userName] = useState<string>(() => {
@@ -73,9 +74,6 @@ function AdminApp() {
     return localStorage.getItem('hub-username') || '';
   });
   const [adminCamActive, setAdminCamActive] = useState<boolean>(false);
-  const [showGrid, setShowGrid] = useState<boolean>(isElectron); // Default ON for admin
-  const [gridStream, setGridStream] = useState<MediaStream | null>(null);
-  const [isGridShared, setIsGridShared] = useState<boolean>(false);
 
   const {
     bitrate: broadcastBitrate, setBitrate: setBroadcastBitrate,
@@ -110,15 +108,11 @@ function AdminApp() {
   const { status: ffmpegStatus, stats: ffmpegStats } = useFfmpegPipeline(ipc);
 
   // Grid Overlay Settings
-  const [showWatermark, setShowWatermark] = useState<boolean>(false);
-  const [watermarkPos, setWatermarkPos] = useState<'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'>('bottom-right');
-  const [showSettingsOverlay, setShowSettingsOverlay] = useState<boolean>(false);
-
-  // RTMP Feed Cameras
-  const [syntheticFeeds, setSyntheticFeeds] = useState<{ id: string, streamKey: string, label: string, stream: MediaStream | null }[]>([]);
-  const [newFeedKey, setNewFeedKey] = useState('');
-  const [newFeedLabel, setNewFeedLabel] = useState('');
-  const feedPlayersRef = useRef<Map<string, { video: HTMLVideoElement, player: any }>>(new Map());
+  const {
+    showWatermark, setShowWatermark,
+    watermarkPos, setWatermarkPos,
+    showSettingsOverlay, setShowSettingsOverlay,
+  } = useOverlaySettings();
 
   usePersistence(selectedVideo, selectedAudio);
 
@@ -136,6 +130,20 @@ function AdminApp() {
     captureVideo: adminCamActive,
     overrideStream: isGridShared ? gridStream : null,
     hostToken,
+  });
+
+  // RTMP synthetic feeds — owns the feed list, form fields, mpegts players, and
+  // both effects. onFeedLive/onFeedRemoved wire feed lifecycle to grid membership
+  // (preserving today's "a feed auto-joins the grid when it goes live" behavior).
+  const {
+    syntheticFeeds,
+    newFeedKey, setNewFeedKey,
+    newFeedLabel, setNewFeedLabel,
+    addSyntheticFeed, removeSyntheticFeed,
+  } = useSyntheticFeeds({
+    serverStatus,
+    onFeedLive: addGridMember,
+    onFeedRemoved: removeGridMember,
   });
 
   const { activeRecordings, recNow, startRecording, stopRecording, openRecordingsDir } = useRecordings(ipc, recordingStopped);
@@ -164,105 +172,6 @@ function AdminApp() {
       return () => clearInterval(interval);
     }
   }, [isElectron, ipc]);
-
-  /**
-   * RTMP Synthetic Feed Effect
-   *
-   * Iterates over any user-defined `syntheticFeeds`.
-   * If a feed doesn't have an active player, it injects an `mpegts.js` FLV player
-   * pointing to the local Node Media Server HTTP-FLV egress.
-   * Upon playback, it uses `.captureStream()` to turn the video into a standard MediaStream
-   * and automatically adds it to the composite Grid.
-   */
-  useEffect(() => {
-    syntheticFeeds.forEach(feed => {
-      if (feed.stream || !feedPlayersRef.current) return;
-
-      const pMap = feedPlayersRef.current;
-      if (pMap.has(feed.id)) return;
-
-      const video = document.createElement('video');
-      video.muted = true;
-      video.playsInline = true;
-      video.autoplay = true;
-
-      if (mpegts.getFeatureList().mseLivePlayback) {
-        const player = mpegts.createPlayer({
-          type: 'flv',
-          isLive: true,
-          url: localFlvUrl(feed.streamKey) // local NMS over loopback (see localFlvUrl)
-        });
-        player.attachMediaElement(video);
-        player.load();
-        const playPromise = player.play() as Promise<void> | undefined;
-        if (playPromise !== undefined) {
-          playPromise.catch((e: any) => console.error('[Feeds] Autoplay error:', e));
-        }
-
-        pMap.set(feed.id, { video, player });
-
-        video.addEventListener('playing', () => {
-          if ((video as any).captureStream) {
-            const stream = (video as any).captureStream();
-            setSyntheticFeeds(prev => prev.map(f => f.id === feed.id ? { ...f, stream } : f));
-            // Automatically add to grid upon playing
-            setGridMembers(prev => {
-              const next = new Set(prev);
-              next.add(feed.id);
-              return next;
-            });
-          }
-        });
-      }
-    });
-
-    return () => {
-      // Per-feed players are torn down on manual removal; full teardown is the
-      // unmount-only effect below (NOT here — this cleanup runs every serverStatus
-      // tick, which would churn live feeds every few seconds).
-    };
-  }, [syntheticFeeds, serverStatus]);
-
-  // Tear down all synthetic-feed mpegts players + video elements on UNMOUNT only.
-  useEffect(() => {
-    const pMap = feedPlayersRef.current;
-    return () => {
-      pMap?.forEach(({ player, video }) => {
-        try { player?.destroy?.(); } catch (_) { /* noop */ }
-        try { video?.remove?.(); } catch (_) { /* noop */ }
-      });
-      pMap?.clear();
-    };
-  }, []);
-
-  const addSyntheticFeed = () => {
-    if (!newFeedKey.trim()) return;
-    const id = `rtmp-${Date.now()}`;
-    setSyntheticFeeds(prev => [...prev, {
-      id,
-      streamKey: newFeedKey.trim(),
-      label: newFeedLabel.trim() || newFeedKey.trim(),
-      stream: null
-    }]);
-    setNewFeedKey('');
-    setNewFeedLabel('');
-  };
-
-  const removeSyntheticFeed = (id: string) => {
-    const pMap = feedPlayersRef.current;
-    if (pMap && pMap.has(id)) {
-      const { player, video } = pMap.get(id)!;
-      player.destroy();
-      video.srcObject = null;
-      pMap.delete(id);
-    }
-    setSyntheticFeeds(prev => prev.filter(f => f.id !== id));
-    setGridMembers(prev => {
-      const next = new Set(prev);
-      next.delete(id);
-      return next;
-    });
-  };
 
   // NOTE: every connected peer appears in the grid (intended). `allStreams` is the
   // single source for GridView — there is no per-peer grid-membership filter.
