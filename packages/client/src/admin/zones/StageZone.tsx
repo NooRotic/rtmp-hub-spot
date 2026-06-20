@@ -176,7 +176,7 @@ export function StageZone({
             {userStream && (
               <VideoFeed
                 stream={userStream}
-                label="Admin Hub (Self)"
+                label="Admin Hub"
                 isLocal
                 isVideoEnabled={isVideoEnabled}
                 setIsVideoEnabled={setIsVideoEnabled}
