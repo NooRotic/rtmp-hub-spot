@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import io from 'socket.io-client';
 import Peer from 'simple-peer';
 
@@ -64,6 +64,9 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
   // Refs to always reflect the latest prop values inside async callbacks and timers
   const userNameRef = useRef(userName ?? '');
   const cameraLabelRef = useRef(cameraLabel ?? '');
+  // Mirrors userStream so peers built inside socket callbacks carry the live stream
+  // (not a stale-null closure captured when connectInternal first ran).
+  const userStreamRef = useRef<MediaStream | null>(null);
   const pinRef = useRef(pin ?? '');
   const hostTokenRef = useRef(hostToken ?? '');
 
@@ -178,7 +181,7 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
       usersList.forEach(user => {
         if (peersRef.current.find(p => p.id === user.userId)) return;
         // The newcomer initiates with everyone already there
-        const peer = createPeer(user.userId, user.userName, userStream || undefined);
+        const peer = createPeer(user.userId, user.userName, userStreamRef.current || undefined);
         peersRef.current.push({ id: user.userId, name: user.userName, peer });
         setPeers((prev) => [...prev, { id: user.userId, name: user.userName, peer }]);
       });
@@ -201,7 +204,7 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
         return;
       }
 
-      const peer = addPeer(data.offer, data.senderId, data.senderName, userStream || undefined);
+      const peer = addPeer(data.offer, data.senderId, data.senderName, userStreamRef.current || undefined);
       peersRef.current.push({ id: data.senderId, name: data.senderName, peer });
       setPeers((prev) => [...prev, { id: data.senderId, name: data.senderName, peer }]);
     });
@@ -215,6 +218,10 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
     socketRef.current.on('ice-candidate', (data: { candidate: any; senderId: string }) => {
       const item = peersRef.current.find((p) => p.id === data.senderId);
       if (item) item.peer.signal(data.candidate);
+    });
+
+    socketRef.current.on('renegotiate', ({ data, senderId }: { data: any; senderId: string }) => {
+      peersRef.current.find(p => p.id === senderId)?.peer.signal(data);
     });
 
     socketRef.current.on('user-disconnected', (userId: string) => {
@@ -327,6 +334,13 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
     };
   }, []);
 
+  // Stable signature of the current peer set. Re-applying the override on this
+  // change pushes the grid track to peers that joined AFTER the override was set
+  // (a late-joining client would otherwise never receive it). The has-stream /
+  // track-present guards inside the effect make re-application idempotent for
+  // peers that already carry the track.
+  const peerSetSignature = useMemo(() => peers.map(p => p.id).join(','), [peers]);
+
   useEffect(() => {
     if (overrideStream) {
       const videoTrack = overrideStream.getVideoTracks()[0];
@@ -381,7 +395,7 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
       });
       setUserStream(camStream);
     }
-  }, [overrideStream]);
+  }, [overrideStream, peerSetSignature]);
 
   useEffect(() => {
     // We now allow media in both Client and Electron (Admin)
@@ -462,6 +476,8 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
             socketRef.current.emit('offer', { roomId: 'main-hub', offer: signal, to: remoteId });
         } else if (signal.type === 'answer') {
             socketRef.current.emit('answer', { roomId: 'main-hub', answer: signal, to: remoteId });
+        } else if (signal.type === 'renegotiate' || signal.renegotiate) {
+            socketRef.current.emit('renegotiate', { roomId: 'main-hub', data: signal, to: remoteId });
         } else if (signal.candidate) {
             socketRef.current.emit('ice-candidate', { roomId: 'main-hub', candidate: signal, to: remoteId });
         }
@@ -535,6 +551,7 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
   };
 
   // Keep refs in sync with latest prop values so reconnect timers always see current data
+  useEffect(() => { userStreamRef.current = userStream; }, [userStream]);
   useEffect(() => { userNameRef.current = userName ?? ''; }, [userName]);
   useEffect(() => { cameraLabelRef.current = cameraLabel ?? ''; }, [cameraLabel]);
   useEffect(() => { pinRef.current = pin ?? ''; }, [pin]);

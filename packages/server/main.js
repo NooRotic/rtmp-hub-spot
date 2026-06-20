@@ -442,6 +442,14 @@ initializeServer().then(({ nms, server, io }) => {
       });
     });
 
+    socket.on('renegotiate', (data) => {
+      if (!users[socket.id]) return; // only joined members may signal
+      socket.to(data.to).emit('renegotiate', {
+        data: data.data,
+        senderId: socket.id
+      });
+    });
+
     socket.on('chat-message', (data) => {
       if (!users[socket.id]) return; // only joined members may chat
       const { message } = data;

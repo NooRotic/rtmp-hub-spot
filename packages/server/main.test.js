@@ -110,3 +110,78 @@ describe('kick-user socket handler logic', () => {
     expect(otherSocket.disconnect).not.toHaveBeenCalled();
   });
 });
+
+describe('renegotiate relay handler logic', () => {
+  // Mirrors the socket.on('renegotiate', ...) body in main.js: forward the
+  // simple-peer renegotiation signal to the targeted peer, stamping senderId.
+  const makeRelay = (users) => {
+    const sent = [];
+    const socket = {
+      id: 'sender-id',
+      to: (target) => ({ emit: (event, payload) => sent.push({ target, event, payload }) }),
+    };
+    const handleRenegotiate = (data) => {
+      if (!users[socket.id]) return; // only joined members may signal
+      socket.to(data.to).emit('renegotiate', {
+        data: data.data,
+        senderId: socket.id,
+      });
+    };
+    return { sent, handleRenegotiate };
+  };
+
+  it('forwards the renegotiate signal to the target with senderId', () => {
+    const { sent, handleRenegotiate } = makeRelay({ 'sender-id': { name: 'A', roomId: 'main-hub' } });
+    handleRenegotiate({ to: 'peer-id', data: { type: 'renegotiate' } });
+    expect(sent).toEqual([
+      { target: 'peer-id', event: 'renegotiate', payload: { data: { type: 'renegotiate' }, senderId: 'sender-id' } },
+    ]);
+  });
+
+  it('drops the signal from a socket that has not joined', () => {
+    const { sent, handleRenegotiate } = makeRelay({}); // sender not in users
+    handleRenegotiate({ to: 'peer-id', data: { type: 'renegotiate' } });
+    expect(sent).toEqual([]);
+  });
+});
+
+describe('peer signal emit filter (client renegotiation)', () => {
+  // Mirrors the bindPeerEvents 'signal' filter in useWebRTC.ts. simple-peer emits
+  // a { type: 'renegotiate' } (or { renegotiate: true }) signal that must be
+  // forwarded over a dedicated 'renegotiate' socket event — previously it fell
+  // through and was silently dropped, so a connected peer's video stayed black.
+  const emitForSignal = (signal, remoteId = 'remote-1') => {
+    const emitted = [];
+    const socket = { emit: (event, payload) => emitted.push({ event, payload }) };
+    if (signal.type === 'offer' || signal.type === 'transceiverRequest') {
+      socket.emit('offer', { roomId: 'main-hub', offer: signal, to: remoteId });
+    } else if (signal.type === 'answer') {
+      socket.emit('answer', { roomId: 'main-hub', answer: signal, to: remoteId });
+    } else if (signal.type === 'renegotiate' || signal.renegotiate) {
+      socket.emit('renegotiate', { roomId: 'main-hub', data: signal, to: remoteId });
+    } else if (signal.candidate) {
+      socket.emit('ice-candidate', { roomId: 'main-hub', candidate: signal, to: remoteId });
+    }
+    return emitted;
+  };
+
+  it('emits a renegotiate event for a { type: "renegotiate" } signal', () => {
+    const emitted = emitForSignal({ type: 'renegotiate' });
+    expect(emitted).toEqual([
+      { event: 'renegotiate', payload: { roomId: 'main-hub', data: { type: 'renegotiate' }, to: 'remote-1' } },
+    ]);
+  });
+
+  it('emits a renegotiate event for a { renegotiate: true } signal', () => {
+    const emitted = emitForSignal({ renegotiate: true });
+    expect(emitted).toEqual([
+      { event: 'renegotiate', payload: { roomId: 'main-hub', data: { renegotiate: true }, to: 'remote-1' } },
+    ]);
+  });
+
+  it('still routes offer/answer/ice through their own events', () => {
+    expect(emitForSignal({ type: 'offer' })[0].event).toBe('offer');
+    expect(emitForSignal({ type: 'answer' })[0].event).toBe('answer');
+    expect(emitForSignal({ candidate: {} })[0].event).toBe('ice-candidate');
+  });
+});
