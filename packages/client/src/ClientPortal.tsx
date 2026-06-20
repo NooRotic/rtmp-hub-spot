@@ -138,6 +138,60 @@ export function ClientPortal() {
         <StatusTag state={statusState} label={statusLabel} />
       </div>
 
+      {/* Top controls row — name input + camera/mic selects on one line */}
+      <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <div style={{ flex: '1 1 auto', minWidth: '120px' }}>
+          <label style={{ display: 'block', fontSize: '11px', color: 'var(--ntd-text-dim)', marginBottom: '3px' }}>
+            Name
+          </label>
+          <input
+            className={`ntd-field ntd-portal__field${!userName.trim() ? ' ntd-field--error' : ''}`}
+            type="text"
+            value={userName}
+            onChange={(e) => setUserName(e.target.value)}
+            placeholder="Required: Enter your name"
+            disabled={isConnected}
+            style={{ width: '100%', boxSizing: 'border-box' }}
+          />
+        </div>
+        <div style={{ flex: '1 1 auto', minWidth: '120px' }}>
+          <label style={{ display: 'block', fontSize: '11px', color: 'var(--ntd-text-dim)', marginBottom: '3px' }}>
+            Camera
+          </label>
+          <select
+            className="ntd-field"
+            style={{ width: '100%', boxSizing: 'border-box', minHeight: '44px' }}
+            value={selectedVideo}
+            onChange={(e) => setSelectedVideo(e.target.value)}
+          >
+            <option value="">Default Camera</option>
+            {videoDevices.map((d) => (
+              <option key={d.deviceId} value={d.deviceId}>
+                {d.label || 'Camera'}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div style={{ flex: '1 1 auto', minWidth: '120px' }}>
+          <label style={{ display: 'block', fontSize: '11px', color: 'var(--ntd-text-dim)', marginBottom: '3px' }}>
+            Mic
+          </label>
+          <select
+            className="ntd-field"
+            style={{ width: '100%', boxSizing: 'border-box', minHeight: '44px' }}
+            value={selectedAudio}
+            onChange={(e) => setSelectedAudio(e.target.value)}
+          >
+            <option value="">Default Mic</option>
+            {audioDevices.map((d) => (
+              <option key={d.deviceId} value={d.deviceId}>
+                {d.label || 'Microphone'}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
       {/* Preview block — self view or camera error placeholder */}
       <div className="ntd-portal__preview">
         {cameraError && !userStream && (
@@ -178,57 +232,6 @@ export function ClientPortal() {
             serverLocalIP={serverStatus?.local}
           />
         )}
-      </div>
-
-      {/* Name input */}
-      <input
-        className={`ntd-field ntd-portal__field${!userName.trim() ? ' ntd-field--error' : ''}`}
-        type="text"
-        value={userName}
-        onChange={(e) => setUserName(e.target.value)}
-        placeholder="Required: Enter your name"
-        disabled={isConnected}
-        style={{ width: '100%', boxSizing: 'border-box' }}
-      />
-
-      {/* Device selects */}
-      <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-        <div style={{ flex: '1 1 auto', minWidth: '120px' }}>
-          <label style={{ display: 'block', fontSize: '11px', color: 'var(--ntd-text-dim)', marginBottom: '3px' }}>
-            Camera
-          </label>
-          <select
-            className="ntd-field"
-            style={{ width: '100%', boxSizing: 'border-box', minHeight: '44px' }}
-            value={selectedVideo}
-            onChange={(e) => setSelectedVideo(e.target.value)}
-          >
-            <option value="">Default Camera</option>
-            {videoDevices.map((d) => (
-              <option key={d.deviceId} value={d.deviceId}>
-                {d.label || 'Camera'}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div style={{ flex: '1 1 auto', minWidth: '120px' }}>
-          <label style={{ display: 'block', fontSize: '11px', color: 'var(--ntd-text-dim)', marginBottom: '3px' }}>
-            Mic
-          </label>
-          <select
-            className="ntd-field"
-            style={{ width: '100%', boxSizing: 'border-box', minHeight: '44px' }}
-            value={selectedAudio}
-            onChange={(e) => setSelectedAudio(e.target.value)}
-          >
-            <option value="">Default Mic</option>
-            {audioDevices.map((d) => (
-              <option key={d.deviceId} value={d.deviceId}>
-                {d.label || 'Microphone'}
-              </option>
-            ))}
-          </select>
-        </div>
       </div>
 
       {/* Action bar — camera toggle + connect/disconnect */}
