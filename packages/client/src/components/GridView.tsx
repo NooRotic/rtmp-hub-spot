@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { isElectron, getIpc } from '../hooks/useElectronBridge';
+import { useNTWindow } from '../hooks/useNTWindow';
 
 // For the Electron Admin environment
 const ipc = getIpc();
@@ -35,33 +36,12 @@ const GridView: React.FC<GridViewProps> = ({
 }) => {
   const rtmpHost = serverLocalIP || window.location.hostname;
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const { containerRef, titleBarProps, resizeHandleProps, containerStyle } = useNTWindow('gridview');
   const [isPiping, setIsPiping] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const requestRef = useRef<number | undefined>(undefined);
   const tempVideosRef = useRef<Map<string, HTMLVideoElement>>(new Map());
   const hasCapturedRef = useRef(false);
-
-  useEffect(() => {
-    const savedSize = localStorage.getItem('hub-size-gridview');
-    if (savedSize && containerRef.current) {
-      const { width, height } = JSON.parse(savedSize);
-      containerRef.current.style.width = width;
-      containerRef.current.style.height = height;
-    }
-
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        localStorage.setItem('hub-size-gridview', JSON.stringify({ 
-          width: `${entry.target.clientWidth}px`, 
-          height: `${entry.target.clientHeight}px` 
-        }));
-      }
-    });
-
-    if (containerRef.current) observer.observe(containerRef.current);
-    return () => observer.disconnect();
-  }, []);
 
   useEffect(() => {
     const updateCanvasSize = () => {
@@ -352,8 +332,8 @@ const GridView: React.FC<GridViewProps> = ({
   };
 
   return (
-    <div ref={containerRef} className="window resizable" style={{ width: '100%', maxWidth: '100%', marginTop: '20px' }}>
-      <div className="window-title">
+    <div ref={containerRef} className="window resizable" style={{ width: '100%', maxWidth: '100%', marginTop: '20px', ...containerStyle }}>
+      <div className="window-title" onMouseDown={titleBarProps.onMouseDown} onDoubleClick={titleBarProps.onDoubleClick} style={titleBarProps.style}>
         <span>Combined Grid View</span>
         {isElectron && (
           <button className="btn" onClick={toggleGridPipe} style={{ padding: '0 4px' }}>
@@ -388,7 +368,7 @@ const GridView: React.FC<GridViewProps> = ({
           style={{ width: '100%', height: 'auto', border: '1px solid #000' }}
         />
       </div>
-      <div className="resizable-handle"></div>
+      <div className="resizable-handle" onMouseDown={resizeHandleProps.onMouseDown}></div>
     </div>
   );
 };

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { feedKey } from '../utils/streamKey';
 import { isElectron, getIpc } from '../hooks/useElectronBridge';
+import { useNTWindow } from '../hooks/useNTWindow';
 
 // For the Electron Admin environment
 const ipc = getIpc();
@@ -25,31 +26,10 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
 }) => {
   const rtmpHost = serverLocalIP || window.location.hostname;
   const videoRef = useRef<HTMLVideoElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const { containerRef, titleBarProps, resizeHandleProps, containerStyle } = useNTWindow(label);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const [isPiping, setIsPiping] = useState(false);
   const [hwAccel, setHwAccel] = useState('none');
-
-  useEffect(() => {
-    const savedSize = localStorage.getItem(`hub-size-${label}`);
-    if (savedSize && containerRef.current) {
-      const { width, height } = JSON.parse(savedSize);
-      containerRef.current.style.width = width;
-      containerRef.current.style.height = height;
-    }
-
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        localStorage.setItem(`hub-size-${label}`, JSON.stringify({ 
-          width: `${entry.target.clientWidth}px`, 
-          height: `${entry.target.clientHeight}px` 
-        }));
-      }
-    });
-
-    if (containerRef.current) observer.observe(containerRef.current);
-    return () => observer.disconnect();
-  }, [label]);
 
   useEffect(() => {
     if (videoRef.current && stream) {
@@ -103,8 +83,8 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
   }, []);
 
   return (
-    <div ref={containerRef} className="window resizable" style={{ display: 'inline-block', margin: '5px' }}>
-      <div className="window-title">
+    <div ref={containerRef} className="window resizable" style={{ display: 'inline-block', margin: '5px', ...containerStyle }}>
+      <div className="window-title" onMouseDown={titleBarProps.onMouseDown} onDoubleClick={titleBarProps.onDoubleClick} style={titleBarProps.style}>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           <span>{label} {isLocal ? '(Self)' : ''}</span>
           {isLocal && setIsVideoEnabled && setIsAudioEnabled && (
@@ -171,7 +151,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
           }}
         />
       </div>
-      <div className="resizable-handle"></div>
+      <div className="resizable-handle" onMouseDown={resizeHandleProps.onMouseDown}></div>
     </div>
   );
 };

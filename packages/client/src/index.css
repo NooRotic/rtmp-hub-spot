@@ -249,7 +249,8 @@ body {
 }
 
 .window.resizable {
-  resize: both;
+  /* Resizing is owned by the JS .resizable-handle (useNTWindow), not native
+     CSS `resize: both` — keeping both would produce two conflicting grips. */
   overflow: hidden;
   min-width: 200px;
   min-height: 150px;
