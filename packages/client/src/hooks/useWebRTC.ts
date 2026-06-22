@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import io from 'socket.io-client';
 import Peer from 'simple-peer';
 
@@ -334,13 +334,6 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
     };
   }, []);
 
-  // Stable signature of the current peer set. Re-applying the override on this
-  // change pushes the grid track to peers that joined AFTER the override was set
-  // (a late-joining client would otherwise never receive it). The has-stream /
-  // track-present guards inside the effect make re-application idempotent for
-  // peers that already carry the track.
-  const peerSetSignature = useMemo(() => peers.map(p => p.id).join(','), [peers]);
-
   useEffect(() => {
     if (overrideStream) {
       const videoTrack = overrideStream.getVideoTracks()[0];
@@ -395,7 +388,13 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
       });
       setUserStream(camStream);
     }
-  }, [overrideStream, peerSetSignature]);
+    // Intentionally keyed ONLY on overrideStream. Late-joining peers already
+    // receive the current stream at creation time (all-users/offer handlers
+    // pass userStreamRef.current), so re-running on every peer-set change is
+    // unnecessary — and harmful: it re-applies addTrack/addStream/replaceTrack
+    // across the whole established mesh on each join, renegotiating stable
+    // connections and blanking other clients' video.
+  }, [overrideStream]);
 
   useEffect(() => {
     // We now allow media in both Client and Electron (Admin)
