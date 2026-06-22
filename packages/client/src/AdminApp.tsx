@@ -119,7 +119,11 @@ function AdminApp() {
   const { videoDevices, audioDevices } = useMediaDevices();
 
   const currentVideoDevice = videoDevices.find(d => d.deviceId === selectedVideo);
-  const cameraLabel = currentVideoDevice?.label || (isElectron ? 'Admin Hub' : 'Default Camera');
+  // Strip the trailing USB hardware id Chrome appends to device labels
+  // (e.g. "Elgato 4K X (0fd9:0091)" -> "Elgato 4K X") so the broadcast/peer
+  // name shown to clients is clean.
+  const cameraLabel = (currentVideoDevice?.label || (isElectron ? 'Admin Hub' : 'Default Camera'))
+    .replace(/\s*\([0-9a-f]{4}:[0-9a-f]{4}\)\s*$/i, '');
   const broadcastLabel = isGridShared ? 'Composite Grid' : cameraLabel;
 
   const { serverStatus, isConnected, socketStatus, peers, userStream, cameraError, isVideoEnabled, setIsVideoEnabled, isAudioEnabled, setIsAudioEnabled, chatMessages, sendMessage, connect, recordingStopped, kickUser } = useWebRTC('main-hub', {
