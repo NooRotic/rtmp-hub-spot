@@ -7,9 +7,13 @@ const { app, BrowserWindow, ipcMain, shell, session, dialog } = require('electro
 const log = require('electron-log/main');
 log.initialize();
 log.transports.file.level = 'info';
+log.transports.console.level = process.env.RTMP_DEBUG ? 'debug' : 'info';
 Object.assign(console, log.functions); // existing console.* calls now also persist to file
 process.on('uncaughtException', (e) => { try { log.error('[uncaughtException]', e); } catch (_) { /* noop */ } });
 process.on('unhandledRejection', (e) => { try { log.error('[unhandledRejection]', e); } catch (_) { /* noop */ } });
+
+let _lastLoggedIP = null;
+let _lastRecProgressAt = 0;
 
 const { isLoopbackHost } = require('./cert-trust');
 const { buildFfmpegArgs } = require('./ffmpeg-args');
@@ -368,7 +372,10 @@ initializeServer().then(({ nms, server, io }) => {
         }
         if (localIP !== '127.0.0.1' && preferredInterfaces.some(pref => name.includes(pref))) break;
       }
-      console.log('[STATUS] Discovered Local IP:', localIP);
+      if (localIP !== _lastLoggedIP) {
+        console.log('[STATUS] Discovered Local IP:', localIP);
+        _lastLoggedIP = localIP;
+      }
 
       const sessions = Array.from(rtmpSessions.keys()).map(id => getSessionData(id));
       const publishers = Array.from(rtmpPublishers.entries()).map(([key, data]) => ({
@@ -685,7 +692,11 @@ ipcMain.handle('start-recording', async (event, { streamKey }) => {
     .on('start', (cmd) => console.log('[REC] Started:', cmd.slice(0, 100) + '...'))
     .on('stderr', (line) => {
       if (line.includes('time=') || line.includes('speed=')) {
-        process.stdout.write(`\r[REC:${streamKey}] ${line.trim()}`);
+        const now = Date.now();
+        if (now - _lastRecProgressAt >= 1000) {
+          _lastRecProgressAt = now;
+          process.stdout.write(`\r[REC:${streamKey}] ${line.trim()}`);
+        }
       }
     })
     .on('error', (err) => {

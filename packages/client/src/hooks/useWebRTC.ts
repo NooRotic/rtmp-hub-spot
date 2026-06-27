@@ -289,7 +289,7 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
         uptime: number
       }[];
     }) => {
-      console.log('[WebRTC] Server status updated:', status);
+      console.debug('[WebRTC] server-status', { clients: status.clientCount, rtmp: status.rtmpCount });
       setServerStatus(status);
     });
   };
