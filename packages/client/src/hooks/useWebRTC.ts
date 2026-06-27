@@ -26,6 +26,10 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
   const [isConnected, setIsConnected] = useState(false);
   const [socketStatus, setSocketStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
   const [userStream, setUserStream] = useState<MediaStream | null>(null);
+  // The raw local camera, independent of `userStream` (which gets aliased to the
+  // grid-capture override while sharing). The admin tile must render THIS so the
+  // admin's own camera stays in the consolidated grid without grid-in-grid feedback.
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [chatMessages, setChatMessages] = useState<{ senderName: string, message: string, timestamp: number }[]>([]);
   const [recordingStopped, setRecordingStopped] = useState<{ streamKey: string; reason: string } | null>(null);
@@ -406,6 +410,7 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
         userStream.getTracks().forEach(t => t.stop());
         setUserStream(null);
         cameraStreamRef.current = null;
+        setCameraStream(null);
       }
       return;
     }
@@ -429,7 +434,8 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
       addLocalStatus('Camera access granted.');
       setCameraError(null);
       cameraStreamRef.current = stream;
-      
+      setCameraStream(stream);
+
       // If we already have peers connected, add this new stream to them
       peersRef.current.forEach(({ peer }) => {
         if (!peer.streams.includes(stream)) {
@@ -561,6 +567,7 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
   return {
     peers,
     userStream,
+    cameraStream,
     cameraError,
     joinDenied,
     connect,

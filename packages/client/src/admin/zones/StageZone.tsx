@@ -205,7 +205,7 @@ export function StageZone({
 
           {showGrid && allStreams.length > 0 && (
             <GridView
-              streams={isGridShared ? allStreams.filter((s: any) => s.id !== 'local') : allStreams}
+              streams={allStreams}
               onStreamUpdate={setGridStream}
               broadcastSettings={{
                 bitrate: broadcastBitrate,

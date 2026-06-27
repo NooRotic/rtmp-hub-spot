@@ -126,7 +126,7 @@ function AdminApp() {
     .replace(/\s*\([0-9a-f]{4}:[0-9a-f]{4}\)\s*$/i, '');
   const broadcastLabel = isGridShared ? 'Composite Grid' : cameraLabel;
 
-  const { serverStatus, isConnected, socketStatus, peers, userStream, cameraError, isVideoEnabled, setIsVideoEnabled, isAudioEnabled, setIsAudioEnabled, chatMessages, sendMessage, connect, recordingStopped, kickUser } = useWebRTC('main-hub', {
+  const { serverStatus, isConnected, socketStatus, peers, userStream, cameraStream, cameraError, isVideoEnabled, setIsVideoEnabled, isAudioEnabled, setIsAudioEnabled, chatMessages, sendMessage, connect, recordingStopped, kickUser } = useWebRTC('main-hub', {
     videoId: adminCamActive ? selectedVideo : undefined,
     audioId: adminCamActive ? selectedAudio : undefined,
     userName: userName,
@@ -188,10 +188,14 @@ function AdminApp() {
   // gridMembers is seeded with 'local' and feeds auto-add on live, so the default
   // grid is visually identical to before — only unchecking now removes a tile.
   const allStreams = useMemo(() => [
-    ...(userStream && (adminCamActive || isGridShared) && gridMembers.has('local') ? [{
+    // The admin's own tile uses the RAW camera (`cameraStream`), never `userStream`
+    // — while sharing, `userStream` is aliased to the grid-capture override, which
+    // would feed the grid back into itself. Sourcing the camera keeps the admin in
+    // the consolidated grid AND lets us drop the old `s.id !== 'local'` GridView filter.
+    ...(cameraStream && adminCamActive && gridMembers.has('local') ? [{
       id: 'local',
-      stream: userStream,
-      label: `Admin Hub - ${broadcastLabel}`
+      stream: cameraStream,
+      label: `Admin Hub - ${cameraLabel}`
     }] : []),
     ...peers.filter(p => p.stream).map(p => ({
       id: p.id,
@@ -203,7 +207,7 @@ function AdminApp() {
       stream: f.stream as MediaStream,
       label: `[Feed] ${f.label}`
     }))
-  ], [userStream, adminCamActive, isGridShared, broadcastLabel, peers, syntheticFeeds, gridMembers]);
+  ], [cameraStream, adminCamActive, cameraLabel, peers, syntheticFeeds, gridMembers]);
 
   // ── Context split (Phase 3) ──────────────────────────────────────────────
   // Two memos with DISJOINT dep arrays so the STABLE (actions) value's identity
