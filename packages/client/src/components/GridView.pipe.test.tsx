@@ -10,7 +10,7 @@
  * globals are installed BEFORE GridView is dynamically imported below.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import React from 'react';
+import React, { act } from 'react';
 import { render, screen, fireEvent, cleanup } from '../test/testUtils';
 
 // --- Electron-like environment, set up before GridView import ---
@@ -109,5 +109,26 @@ describe('GridView → FFmpeg pipe (characterization)', () => {
 
     expect(sent.some((s) => s.channel === 'ffmpeg-pipe-stop')).toBe(true);
     expect(lastRecorder.stop).toHaveBeenCalled();
+  });
+
+  it('STALL WATCHDOG: surfaces a visible "broadcast failed" banner when chunks stop for ~3s', async () => {
+    vi.useFakeTimers();
+    try {
+      const onBroadcastError = vi.fn();
+      const { container } = render(<GridView streams={[]} onBroadcastError={onBroadcastError} />);
+      fireEvent.click(startButton());
+      // No chunks ever arrive (the grid source starves ffmpeg from the start).
+      // Advance past the 3s stall threshold + a watchdog tick (in act so the
+      // resulting setState flushes to the DOM banner).
+      await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+
+      expect(onBroadcastError).toHaveBeenCalled();
+      expect(onBroadcastError.mock.calls[0][0]).toMatch(/stall/i);
+      const banner = container.querySelector('[data-testid="broadcast-error"]');
+      expect(banner).toBeTruthy();
+      expect(banner?.textContent).toMatch(/broadcast failed/i);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

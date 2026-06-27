@@ -34,7 +34,7 @@ export function BroadcastConsole() {
     else destinationActions.setBinding({ sourceKey, destinationId: destId, active: true });
   };
 
-  const { state, streamKey: sk } = ffmpeg.status;
+  const { state, streamKey: sk, message } = ffmpeg.status;
   const stats = ffmpeg.stats;
 
   return (
@@ -52,6 +52,27 @@ export function BroadcastConsole() {
             : ''}
         </span>
       </div>
+
+      {/* ── Sticky failure banner: keep the real cause on screen instead of
+            silently flipping the chip back to idle. ───────────────────────── */}
+      {state === 'error' && (
+        <div
+          role="alert"
+          data-testid="broadcast-error-banner"
+          style={{
+            backgroundColor: '#3a0000',
+            color: '#ffb4b4',
+            border: '1px solid #c0392b',
+            borderRadius: 3,
+            padding: '4px 8px',
+            margin: '4px 0',
+            fontSize: 11,
+            fontWeight: 'bold',
+          }}
+        >
+          ⚠ Broadcast failed{sk ? ` (${sk})` : ''}: {message || 'ffmpeg pipe error — see main.log for the ffmpeg stderr tail.'}
+        </div>
+      )}
 
       {/* ── SOURCES lane (one line per RTMP publisher) ──────────────────── */}
       <div className="ntd-console__lane">

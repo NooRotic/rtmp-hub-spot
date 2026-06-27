@@ -513,7 +513,18 @@ initializeServer().then(({ nms, server, io }) => {
     relayManager.stopAll(); // stop all relay fan-out processes
     clearInterval(statusInterval);
     if (server) server.close();
-    if (nms) nms.stop();
+    // node-media-server v4 removed stop(); calling it threw
+    // "TypeError: nms.stop is not a function", aborting teardown and orphaning
+    // RTMP port 1935. Guard for whichever teardown method this NMS version exposes.
+    try {
+      if (nms && typeof nms.stop === 'function') {
+        nms.stop();
+      } else if (nms && typeof nms.close === 'function') {
+        nms.close(); // v4 exposes close() to release the RTMP/HTTP listeners
+      }
+    } catch (e) {
+      log.error('[NMS] teardown on before-quit failed:', (e && e.message) || e);
+    }
   });
 }).catch(err => {
   log.error('[CRITICAL] Server Initialization Failed:', err);
@@ -566,6 +577,7 @@ const pipeManager = createPipeManager({
   buildFfmpegArgs,
   broadcastIPC,
   rtmpPort: RTMP_PORT,
+  log, // share the electron-log/main sink so ffmpeg failures persist to main.log
 });
 
 /**

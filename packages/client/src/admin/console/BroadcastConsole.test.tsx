@@ -113,6 +113,17 @@ describe('BroadcastConsole', () => {
     expect(container.textContent).toMatch(/30fps/i);
   });
 
+  it('shows a sticky "broadcast failed" banner with the message on ffmpeg error', () => {
+    const data = base({
+      ffmpeg: { status: { state: 'error', streamKey: 'grid', message: 'Connection to tcp://localhost:1935 failed' }, stats: null },
+    });
+    const { container } = render(<AdminDataProvider value={data}><BroadcastConsole /></AdminDataProvider>);
+    const banner = container.querySelector('[data-testid="broadcast-error-banner"]');
+    expect(banner).toBeTruthy();
+    expect(banner?.textContent).toMatch(/broadcast failed/i);
+    expect(banner?.textContent).toContain('Connection to tcp://localhost:1935 failed');
+  });
+
   it('empty-state when there are no destinations', () => {
     const { container } = render(<AdminDataProvider value={base({ destinations: [] })}><BroadcastConsole /></AdminDataProvider>);
     expect(container.textContent).toMatch(/no destinations|add your first/i);

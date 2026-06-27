@@ -74,6 +74,45 @@ describe('FFmpeg auto-restart backoff', () => {
   });
 });
 
+describe('before-quit NMS teardown guard', () => {
+  // Mirrors the guarded teardown in main.js before-quit. node-media-server v4
+  // removed stop(); calling it unconditionally threw "nms.stop is not a function"
+  // and orphaned RTMP port 1935. The guard must (a) never throw and (b) call
+  // whichever teardown the installed NMS version actually exposes.
+  const teardownNms = (nms, log = { error: () => {} }) => {
+    try {
+      if (nms && typeof nms.stop === 'function') {
+        nms.stop();
+      } else if (nms && typeof nms.close === 'function') {
+        nms.close();
+      }
+    } catch (e) {
+      log.error('[NMS] teardown failed:', (e && e.message) || e);
+    }
+  };
+
+  it('calls stop() when the NMS version still exposes it (v2/v3)', () => {
+    const nms = { stop: vi.fn() };
+    teardownNms(nms);
+    expect(nms.stop).toHaveBeenCalled();
+  });
+
+  it('does not throw when stop() is absent (node-media-server v4)', () => {
+    const nms = {}; // v4: neither stop nor close in this shape
+    expect(() => teardownNms(nms)).not.toThrow();
+  });
+
+  it('falls back to close() to release port 1935 when stop() is gone but close() exists', () => {
+    const nms = { close: vi.fn() };
+    teardownNms(nms);
+    expect(nms.close).toHaveBeenCalled();
+  });
+
+  it('does not throw when nms itself is null', () => {
+    expect(() => teardownNms(null)).not.toThrow();
+  });
+});
+
 describe('kick-user socket handler logic', () => {
   it('emits kicked to the target socket and disconnects it', () => {
     const targetSocket = { emit: vi.fn(), disconnect: vi.fn() };
