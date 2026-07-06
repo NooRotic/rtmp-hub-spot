@@ -7,9 +7,13 @@ const { app, BrowserWindow, ipcMain, shell, session, dialog } = require('electro
 const log = require('electron-log/main');
 log.initialize();
 log.transports.file.level = 'info';
+log.transports.console.level = process.env.RTMP_DEBUG ? 'debug' : 'info';
 Object.assign(console, log.functions); // existing console.* calls now also persist to file
 process.on('uncaughtException', (e) => { try { log.error('[uncaughtException]', e); } catch (_) { /* noop */ } });
 process.on('unhandledRejection', (e) => { try { log.error('[unhandledRejection]', e); } catch (_) { /* noop */ } });
+
+let _lastLoggedIP = null;
+let _lastRecProgressAt = 0;
 
 const { isLoopbackHost } = require('./cert-trust');
 const { buildFfmpegArgs } = require('./ffmpeg-args');
@@ -368,7 +372,10 @@ initializeServer().then(({ nms, server, io }) => {
         }
         if (localIP !== '127.0.0.1' && preferredInterfaces.some(pref => name.includes(pref))) break;
       }
-      console.log('[STATUS] Discovered Local IP:', localIP);
+      if (localIP !== _lastLoggedIP) {
+        console.log('[STATUS] Discovered Local IP:', localIP);
+        _lastLoggedIP = localIP;
+      }
 
       const sessions = Array.from(rtmpSessions.keys()).map(id => getSessionData(id));
       const publishers = Array.from(rtmpPublishers.entries()).map(([key, data]) => ({
@@ -442,6 +449,14 @@ initializeServer().then(({ nms, server, io }) => {
       });
     });
 
+    socket.on('renegotiate', (data) => {
+      if (!users[socket.id]) return; // only joined members may signal
+      socket.to(data.to).emit('renegotiate', {
+        data: data.data,
+        senderId: socket.id
+      });
+    });
+
     socket.on('chat-message', (data) => {
       if (!users[socket.id]) return; // only joined members may chat
       const { message } = data;
@@ -505,7 +520,18 @@ initializeServer().then(({ nms, server, io }) => {
     relayManager.stopAll(); // stop all relay fan-out processes
     clearInterval(statusInterval);
     if (server) server.close();
-    if (nms) nms.stop();
+    // node-media-server v4 removed stop(); calling it threw
+    // "TypeError: nms.stop is not a function", aborting teardown and orphaning
+    // RTMP port 1935. Guard for whichever teardown method this NMS version exposes.
+    try {
+      if (nms && typeof nms.stop === 'function') {
+        nms.stop();
+      } else if (nms && typeof nms.close === 'function') {
+        nms.close(); // v4 exposes close() to release the RTMP/HTTP listeners
+      }
+    } catch (e) {
+      log.error('[NMS] teardown on before-quit failed:', (e && e.message) || e);
+    }
   });
 }).catch(err => {
   log.error('[CRITICAL] Server Initialization Failed:', err);
@@ -558,6 +584,7 @@ const pipeManager = createPipeManager({
   buildFfmpegArgs,
   broadcastIPC,
   rtmpPort: RTMP_PORT,
+  log, // share the electron-log/main sink so ffmpeg failures persist to main.log
 });
 
 /**
@@ -665,7 +692,11 @@ ipcMain.handle('start-recording', async (event, { streamKey }) => {
     .on('start', (cmd) => console.log('[REC] Started:', cmd.slice(0, 100) + '...'))
     .on('stderr', (line) => {
       if (line.includes('time=') || line.includes('speed=')) {
-        process.stdout.write(`\r[REC:${streamKey}] ${line.trim()}`);
+        const now = Date.now();
+        if (now - _lastRecProgressAt >= 1000) {
+          _lastRecProgressAt = now;
+          process.stdout.write(`\r[REC:${streamKey}] ${line.trim()}`);
+        }
       }
     })
     .on('error', (err) => {
@@ -736,30 +767,65 @@ const HW_ENCODERS = [
   { key: 'intel',  codec: 'h264_qsv',  label: 'Intel QSV (GPU)' },
 ];
 
+const { execFile } = require('child_process');
+
 let _encoderCachePromise = null;
 
 /**
- * Probes ffmpeg for available H.264 encoders once, caches result.
+ * Verify an encoder actually initializes on THIS machine's GPU/runtime.
+ * `ffmpeg.getAvailableEncoders()` only reports what is COMPILED INTO the binary —
+ * the ffmpeg-static build ships h264_amf/h264_nvenc/h264_qsv regardless of the
+ * installed GPU — so a "available" encoder can still fail at runtime (classic case:
+ * h264_amf on a non-AMD box → "amfrt64.dll failed to open", which then crashes
+ * every broadcast pipe). Force a 1-frame encode to /dev/null and check the exit code.
+ * @param {string} codec
+ * @returns {Promise<boolean>}
+ */
+function canInitEncoder(codec) {
+  return new Promise((resolve) => {
+    const args = [
+      '-hide_banner', '-loglevel', 'error',
+      '-f', 'lavfi', '-i', 'testsrc2=size=320x240:rate=1',
+      '-frames:v', '1', '-pix_fmt', 'yuv420p',
+      '-c:v', codec, '-f', 'null', '-',
+    ];
+    execFile(ffmpegStatic, args, { timeout: 8000, windowsHide: true }, (err) => resolve(!err));
+  });
+}
+
+/**
+ * Probes ffmpeg for USABLE H.264 encoders once, caches result. A candidate must be
+ * both compiled in AND able to initialize at runtime (see canInitEncoder), so the
+ * renderer can no longer auto-select a dead GPU encoder.
  * @returns {Promise<{available: string[], best: string, bestLabel: string}>}
  */
 function probeEncoders() {
   if (_encoderCachePromise) return _encoderCachePromise;
 
   _encoderCachePromise = new Promise((resolve) => {
-    ffmpeg.getAvailableEncoders((err, encoders) => {
+    ffmpeg.getAvailableEncoders(async (err, encoders) => {
       if (err) {
         console.error('[GPU] ffmpeg encoder probe failed:', err.message);
         return resolve({ available: [], best: 'none', bestLabel: 'Software x264 (fallback)' });
       }
 
-      const available = HW_ENCODERS.filter(e => encoders[e.codec]).map(e => e.key);
-      console.log('[GPU] Available HW encoders:', available.length ? available : ['none (software only)']);
+      // Compile-time candidates, then runtime-verify each (sequentially — parallel
+      // encoder inits contend for the GPU and can spuriously fail).
+      const compiled = HW_ENCODERS.filter(e => encoders[e.codec]);
+      const available = [];
+      for (const e of compiled) {
+        // eslint-disable-next-line no-await-in-loop
+        const ok = await canInitEncoder(e.codec);
+        if (ok) available.push(e.key);
+        else console.log(`[GPU] ${e.codec} is compiled in but failed runtime init — excluding`);
+      }
+      console.log('[GPU] Usable HW encoders:', available.length ? available : ['none (software only)']);
 
-      // Pick highest-preference available encoder
+      // Pick highest-preference encoder that actually works.
       let best = 'none';
       let bestLabel = 'Software x264';
       for (const e of HW_ENCODERS) {
-        if (encoders[e.codec]) {
+        if (available.includes(e.key)) {
           best = e.key;
           bestLabel = e.label;
           break;

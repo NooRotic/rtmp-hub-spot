@@ -34,6 +34,7 @@ vi.mock('./hooks/useWebRTC', () => ({
   useWebRTC: () => ({
     peers: [],
     userStream: null,
+    cameraStream: null,
     isConnected: false,
     socketStatus: 'disconnected',
     chatMessages: [],

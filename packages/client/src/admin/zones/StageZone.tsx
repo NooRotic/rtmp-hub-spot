@@ -104,7 +104,7 @@ export function StageZone({
         <div className="window-title">
           <span>{isElectron ? 'Admin Video Hub' : 'Admin Monitor'}</span>
         </div>
-        <div className="window-content">
+        <div className="window-content" data-nt-stage>
           <div className="inset-field" style={{ marginBottom: '15px' }}>
             <div style={{ display: 'flex', gap: '10px', marginBottom: '10px', flexWrap: 'wrap' }}>
               <div style={{ flex: '1 1 auto', minWidth: '120px' }}>
@@ -176,18 +176,19 @@ export function StageZone({
             {userStream && (
               <VideoFeed
                 stream={userStream}
-                label="Admin Hub (Self)"
+                label="Admin Hub"
                 isLocal
                 isVideoEnabled={isVideoEnabled}
                 setIsVideoEnabled={setIsVideoEnabled}
                 isAudioEnabled={isAudioEnabled}
                 setIsAudioEnabled={setIsAudioEnabled}
                 serverLocalIP={serverLocalIP}
+                defaultHwAccel={hwAccel}
               />
             )}
             {peers.map((peer) => (
               <div key={peer.id} style={{ position: 'relative' }}>
-                <VideoFeed stream={peer.stream} label={peer.name || `User ${peer.id.slice(0, 4)}`} serverLocalIP={serverLocalIP} />
+                <VideoFeed stream={peer.stream} label={peer.name || `User ${peer.id.slice(0, 4)}`} serverLocalIP={serverLocalIP} defaultHwAccel={hwAccel} />
                 {isAdminMode && (
                   <div style={{ position: 'absolute', top: 4, right: 4, zIndex: 2 }}>
                     <StageTileControls
@@ -205,7 +206,7 @@ export function StageZone({
 
           {showGrid && allStreams.length > 0 && (
             <GridView
-              streams={isGridShared ? allStreams.filter((s: any) => s.id !== 'local') : allStreams}
+              streams={allStreams}
               onStreamUpdate={setGridStream}
               broadcastSettings={{
                 bitrate: broadcastBitrate,

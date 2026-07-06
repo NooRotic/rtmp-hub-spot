@@ -11,6 +11,7 @@ import { buildFfmpegArgs } from './ffmpeg-args.js';
 function makeManager(overrides = {}) {
   const spawned = []; // one record per spawnPipe call
   const broadcasts = [];
+  const log = { error: vi.fn(), warn: vi.fn(), info: vi.fn() };
   const spawnPipe = vi.fn((videoStream, args, handlers) => {
     const proc = { kill: vi.fn() };
     spawned.push({ videoStream, args, handlers, proc });
@@ -23,9 +24,10 @@ function makeManager(overrides = {}) {
     broadcastIPC: (channel, data) => broadcasts.push({ channel, data }),
     rtmpPort: 1935,
     maxRestarts: 3,
+    log,
     ...overrides,
   });
-  return { manager, spawned, broadcasts, spawnPipe };
+  return { manager, spawned, broadcasts, spawnPipe, log };
 }
 
 describe('pipe-manager', () => {
@@ -102,6 +104,54 @@ describe('pipe-manager', () => {
     expect(spawned[0].proc.kill).toHaveBeenCalled();
     expect(spawned[1].proc.kill).toHaveBeenCalled();
     expect(manager.size()).toBe(0);
+  });
+
+  describe('observability — failures are LOUD (logged), not silent', () => {
+    it('log.error()s the ffmpeg error message AND the captured stderr tail on a crash', () => {
+      const { manager, spawned, log } = makeManager();
+      manager.start({ streamKey: 'grid', hwAccel: 'none' });
+
+      // ffmpeg emits non-progress stderr (the real diagnostics), then errors.
+      spawned[0].handlers.onStderr('Connection to tcp://localhost:1935 failed');
+      spawned[0].handlers.onStderr('Error opening output rtmp://localhost:1935/live/grid');
+      spawned[0].handlers.onError(new Error('ffmpeg exited with code 1'));
+
+      const messages = log.error.mock.calls.map((c) => c.join(' '));
+      expect(messages.some((m) => /grid/.test(m) && /code 1/.test(m))).toBe(true);
+      // the discarded-before stderr now persists alongside the error
+      expect(messages.some((m) => /Connection to tcp/.test(m))).toBe(true);
+    });
+
+    it('does NOT treat parseable progress lines as stderr tail (those are stats)', () => {
+      const { manager, spawned, broadcasts } = makeManager();
+      manager.start({ streamKey: 'grid', hwAccel: 'none' });
+      spawned[0].handlers.onStderr('frame=  90 fps=30 q=28.0 size=1024kB time=00:00:03.00 bitrate=2500.0kbits/s speed=1.0x');
+      expect(broadcasts.some((b) => b.channel === 'ffmpeg-stats')).toBe(true);
+    });
+
+    it('log.error()s the terminal "gave up" case after maxRestarts', () => {
+      vi.useFakeTimers();
+      try {
+        const { manager, spawned, log } = makeManager();
+        manager.start({ streamKey: 'grid', hwAccel: 'none' });
+        for (let i = 0; i < 4; i++) {
+          spawned[spawned.length - 1].handlers.onError(new Error('crash'));
+          vi.advanceTimersByTime(10000);
+        }
+        const messages = log.error.mock.calls.map((c) => c.join(' '));
+        expect(messages.some((m) => /giving up|gave up|manual restart/i.test(m))).toBe(true);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('log.warn()s once per unknown streamKey on writeChunk (was a silent no-op)', () => {
+      const { manager, log } = makeManager();
+      manager.writeChunk('ghost', new Uint8Array([1]));
+      manager.writeChunk('ghost', new Uint8Array([2])); // second drop = no second warn
+      expect(log.warn).toHaveBeenCalledTimes(1);
+      expect(log.warn.mock.calls[0].join(' ')).toMatch(/ghost/);
+    });
   });
 
   describe('auto-restart on unexpected crash', () => {

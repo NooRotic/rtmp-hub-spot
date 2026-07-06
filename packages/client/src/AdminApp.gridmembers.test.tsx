@@ -9,8 +9,8 @@
  * `gridMembers.has('local')`, so unchecking "Include Admin" REMOVES it.
  *
  * Electron mode is the testable path: useWebRTC is mocked to return a real
- * userStream (jsdom MockMediaStream) and no peers/feeds. After clicking
- * "START ADMIN CAMERA" the local tile qualifies (userStream && adminCamActive &&
+ * cameraStream (jsdom MockMediaStream) and no peers/feeds. After clicking
+ * "START ADMIN CAMERA" the local tile qualifies (cameraStream && adminCamActive &&
  * gridMembers.has('local')), so `allStreams` === [local] and — because showGrid
  * defaults ON in Electron and allStreams.length > 0 — the GridView ("Combined
  * Grid View") renders. With no peers and no feeds, the local membership is the
@@ -39,13 +39,14 @@ Object.defineProperty(navigator, 'userAgent', {
 const { ipc } = makeFakeIpc();
 (window as any).electron = { ipcRenderer: ipc };
 
-// userStream is a real (mock) MediaStream so the local tile can qualify once the
+// cameraStream is a real (mock) MediaStream so the local tile can qualify once the
 // admin camera is started. No peers, no feeds → local membership is the only
 // thing that can keep `allStreams` non-empty.
 vi.mock('./hooks/useWebRTC', () => ({
   useWebRTC: () => ({
     peers: [],
     userStream: new MediaStream(),
+    cameraStream: new MediaStream(),
     isConnected: false,
     socketStatus: 'disconnected',
     chatMessages: [],

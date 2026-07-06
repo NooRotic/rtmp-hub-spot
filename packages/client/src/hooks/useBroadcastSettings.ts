@@ -43,7 +43,16 @@ export function useBroadcastSettings(ipc: IpcBridge | null): {
       .invoke('detect-gpu-encoder')
       .then((result: DetectedEncoder) => {
         setDetectedEncoder(result);
-        setHwAccel((prev) => (prev === 'none' ? result.best : prev));
+        // Adopt the detected best when the user hasn't chosen yet ('none'), OR when
+        // the persisted choice is no longer a usable encoder on this machine (e.g. a
+        // stale 'amd' carried over from another box / from before the runtime probe —
+        // re-selecting it would relaunch a dead h264_amf pipe). A still-available
+        // explicit choice is respected. Empty `available` (probe failed) → keep prev.
+        setHwAccel((prev) => {
+          if (prev === 'none') return result.best;
+          if (result.available.length && !result.available.includes(prev)) return result.best;
+          return prev;
+        });
       })
       .catch((err: unknown) => console.error('[useBroadcastSettings] GPU detection failed:', err));
   }, [ipc]);

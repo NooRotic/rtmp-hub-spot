@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { isElectron, getIpc } from '../hooks/useElectronBridge';
+import { useNTWindow } from '../hooks/useNTWindow';
 
 // For the Electron Admin environment
 const ipc = getIpc();
@@ -20,6 +21,9 @@ interface GridViewProps {
   serverLocalIP?: string;
   /** When set, this stream occupies 80% of the canvas; others fill a 20% bottom strip. */
   spotlightId?: string;
+  /** Surfaced when the broadcast stalls/fails (e.g. MediaRecorder stops producing
+   *  chunks, starving ffmpeg). Lets a parent show a sticky failure state. */
+  onBroadcastError?: (message: string) => void;
 }
 
 const GridView: React.FC<GridViewProps> = ({
@@ -31,37 +35,38 @@ const GridView: React.FC<GridViewProps> = ({
   watermarkPos = 'bottom-right',
   showSettingsOverlay = false,
   serverLocalIP,
-  spotlightId
+  spotlightId,
+  onBroadcastError
 }) => {
   const rtmpHost = serverLocalIP || window.location.hostname;
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const { containerRef, titleBarProps, resizeHandleProps, containerStyle } = useNTWindow('gridview');
   const [isPiping, setIsPiping] = useState(false);
+  const [broadcastError, setBroadcastError] = useState<string | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const requestRef = useRef<number | undefined>(undefined);
   const tempVideosRef = useRef<Map<string, HTMLVideoElement>>(new Map());
   const hasCapturedRef = useRef(false);
+  /** Stall watchdog: timer id + timestamp of the last non-empty chunk. */
+  const stallTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastChunkAtRef = useRef(0);
 
-  useEffect(() => {
-    const savedSize = localStorage.getItem('hub-size-gridview');
-    if (savedSize && containerRef.current) {
-      const { width, height } = JSON.parse(savedSize);
-      containerRef.current.style.width = width;
-      containerRef.current.style.height = height;
+  /** Surface a broadcast failure loudly: console + sticky local banner + parent callback. */
+  const reportBroadcastError = (message: string) => {
+    console.warn('[GridView] broadcast problem:', message);
+    setBroadcastError(message);
+    onBroadcastError?.(message);
+  };
+
+  const clearStallWatchdog = () => {
+    if (stallTimerRef.current) {
+      clearInterval(stallTimerRef.current);
+      stallTimerRef.current = null;
     }
+  };
 
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        localStorage.setItem('hub-size-gridview', JSON.stringify({ 
-          width: `${entry.target.clientWidth}px`, 
-          height: `${entry.target.clientHeight}px` 
-        }));
-      }
-    });
-
-    if (containerRef.current) observer.observe(containerRef.current);
-    return () => observer.disconnect();
-  }, []);
+  // Tear the watchdog down if the component unmounts mid-broadcast.
+  useEffect(() => () => clearStallWatchdog(), []);
 
   useEffect(() => {
     const updateCanvasSize = () => {
@@ -285,10 +290,12 @@ const GridView: React.FC<GridViewProps> = ({
     if (!ipc || !canvasRef.current) return;
 
     if (isPiping) {
+      clearStallWatchdog();
       mediaRecorderRef.current?.stop();
       ipc.send('ffmpeg-pipe-stop');
       setIsPiping(false);
     } else {
+      setBroadcastError(null);
       if (mediaRecorderRef.current) {
         mediaRecorderRef.current.stop();
       }
@@ -314,6 +321,7 @@ const GridView: React.FC<GridViewProps> = ({
 
       recorder.ondataavailable = async (event) => {
         if (event.data.size === 0) return;
+        lastChunkAtRef.current = Date.now(); // feed the stall watchdog
         try {
           const buffer = await event.data.arrayBuffer();
           const uint8 = new Uint8Array(buffer);
@@ -342,18 +350,41 @@ const GridView: React.FC<GridViewProps> = ({
         }
       };
 
-      recorder.onerror = (err) => console.error('[GridView] MediaRecorder error:', err);
+      recorder.onerror = (err) => {
+        const e = err as unknown as { error?: { message?: string; name?: string } };
+        const msg = e?.error?.message || e?.error?.name || 'MediaRecorder error';
+        console.error('[GridView] MediaRecorder error:', err);
+        reportBroadcastError(`Broadcast capture failed: ${msg}`);
+      };
 
       // 500ms chunks give FFmpeg a bigger initial block containing the full header
       recorder.start(500);
       mediaRecorderRef.current = recorder;
+
+      // ── Stall watchdog ──────────────────────────────────────────────────────
+      // If MediaRecorder produces no non-empty chunk for ~3s while broadcasting,
+      // ffmpeg is being starved and will eventually close with no obvious cause.
+      // Surface it instead of silently starving the pipe. Re-arms each interval so
+      // a transient hiccup that recovers clears itself.
+      const STALL_MS = 3000;
+      lastChunkAtRef.current = Date.now();
+      clearStallWatchdog();
+      stallTimerRef.current = setInterval(() => {
+        const gap = Date.now() - lastChunkAtRef.current;
+        if (gap >= STALL_MS) {
+          reportBroadcastError(
+            `Broadcast stalled: no video data for ${Math.round(gap / 1000)}s (grid source starved — ffmpeg is receiving nothing).`
+          );
+        }
+      }, 1000);
+
       setIsPiping(true);
     }
   };
 
   return (
-    <div ref={containerRef} className="window resizable" style={{ width: '100%', maxWidth: '100%', marginTop: '20px' }}>
-      <div className="window-title">
+    <div ref={containerRef} className="window resizable" style={{ width: '100%', maxWidth: '100%', marginTop: '20px', ...containerStyle }}>
+      <div className="window-title" onMouseDown={titleBarProps.onMouseDown} onDoubleClick={titleBarProps.onDoubleClick} style={titleBarProps.style}>
         <span>Combined Grid View</span>
         {isElectron && (
           <button className="btn" onClick={toggleGridPipe} style={{ padding: '0 4px' }}>
@@ -374,6 +405,25 @@ const GridView: React.FC<GridViewProps> = ({
           overflow: 'hidden'
         }}
       >
+        {broadcastError && (
+          <div
+            role="alert"
+            data-testid="broadcast-error"
+            style={{
+              alignSelf: 'stretch',
+              backgroundColor: '#7a0000',
+              color: '#fff',
+              border: '1px solid #ff5555',
+              padding: '4px 8px',
+              marginBottom: '5px',
+              fontSize: '11px',
+              fontWeight: 'bold',
+              zIndex: 6,
+            }}
+          >
+            ⚠ Broadcast failed: {broadcastError}
+          </div>
+        )}
         <div style={{ fontSize: '10px', color: '#ccc', marginBottom: '5px', zIndex: 5 }}>
           {isPiping ? (
             <span>RTMP LIVE: <strong style={{color: '#00ff00'}}>rtmp://{rtmpHost}/live/grid</strong></span>
@@ -388,7 +438,7 @@ const GridView: React.FC<GridViewProps> = ({
           style={{ width: '100%', height: 'auto', border: '1px solid #000' }}
         />
       </div>
-      <div className="resizable-handle"></div>
+      <div className="resizable-handle" onMouseDown={resizeHandleProps.onMouseDown}></div>
     </div>
   );
 };
