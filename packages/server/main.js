@@ -25,6 +25,7 @@ const { createBroadcastOrchestrator } = require('./broadcast-orchestrator');
 const destinationStore = require('./destinationStore');
 const { extractSessionData } = require('./nms-session');
 const { createRoomGate } = require('./room-pin');
+const { pickLocalIP } = require('./local-ip');
 const crypto = require('crypto');
 const path = require('path');
 const os = require('os');
@@ -350,28 +351,10 @@ initializeServer().then(({ nms, server, io }) => {
    */
   async function broadcastStatus(roomId = 'main') {
     try {
-      const networkInterfaces = os.networkInterfaces();
-      let localIP = '127.0.0.1';
-      // Priority list for interface names to prefer (e.g., Ethernet, Wi-Fi)
-      const preferredInterfaces = ['Ethernet', 'Wi-Fi', 'en0', 'wlan0'];
-      
-      for (const name in networkInterfaces) {
-        for (const iface of networkInterfaces[name]) {
-          // Skip internal (loopback) and non-IPv4 addresses
-          if (iface.family === 'IPv4' && !iface.internal) {
-            // If we find a preferred interface, use it and stop
-            if (preferredInterfaces.some(pref => name.includes(pref))) {
-              localIP = iface.address;
-              break;
-            }
-            // Otherwise, keep the first external one we found
-            if (localIP === '127.0.0.1') {
-              localIP = iface.address;
-            }
-          }
-        }
-        if (localIP !== '127.0.0.1' && preferredInterfaces.some(pref => name.includes(pref))) break;
-      }
+      // Pick a real LAN IPv4, skipping virtual/host-only adapters (Hyper-V, WSL,
+      // Docker…) whose names contain "Ethernet" and would otherwise be advertised
+      // as an unreachable RTMP/host IP. See ./local-ip.
+      const localIP = pickLocalIP(os.networkInterfaces());
       if (localIP !== _lastLoggedIP) {
         console.log('[STATUS] Discovered Local IP:', localIP);
         _lastLoggedIP = localIP;
