@@ -767,30 +767,65 @@ const HW_ENCODERS = [
   { key: 'intel',  codec: 'h264_qsv',  label: 'Intel QSV (GPU)' },
 ];
 
+const { execFile } = require('child_process');
+
 let _encoderCachePromise = null;
 
 /**
- * Probes ffmpeg for available H.264 encoders once, caches result.
+ * Verify an encoder actually initializes on THIS machine's GPU/runtime.
+ * `ffmpeg.getAvailableEncoders()` only reports what is COMPILED INTO the binary —
+ * the ffmpeg-static build ships h264_amf/h264_nvenc/h264_qsv regardless of the
+ * installed GPU — so a "available" encoder can still fail at runtime (classic case:
+ * h264_amf on a non-AMD box → "amfrt64.dll failed to open", which then crashes
+ * every broadcast pipe). Force a 1-frame encode to /dev/null and check the exit code.
+ * @param {string} codec
+ * @returns {Promise<boolean>}
+ */
+function canInitEncoder(codec) {
+  return new Promise((resolve) => {
+    const args = [
+      '-hide_banner', '-loglevel', 'error',
+      '-f', 'lavfi', '-i', 'testsrc2=size=320x240:rate=1',
+      '-frames:v', '1', '-pix_fmt', 'yuv420p',
+      '-c:v', codec, '-f', 'null', '-',
+    ];
+    execFile(ffmpegStatic, args, { timeout: 8000, windowsHide: true }, (err) => resolve(!err));
+  });
+}
+
+/**
+ * Probes ffmpeg for USABLE H.264 encoders once, caches result. A candidate must be
+ * both compiled in AND able to initialize at runtime (see canInitEncoder), so the
+ * renderer can no longer auto-select a dead GPU encoder.
  * @returns {Promise<{available: string[], best: string, bestLabel: string}>}
  */
 function probeEncoders() {
   if (_encoderCachePromise) return _encoderCachePromise;
 
   _encoderCachePromise = new Promise((resolve) => {
-    ffmpeg.getAvailableEncoders((err, encoders) => {
+    ffmpeg.getAvailableEncoders(async (err, encoders) => {
       if (err) {
         console.error('[GPU] ffmpeg encoder probe failed:', err.message);
         return resolve({ available: [], best: 'none', bestLabel: 'Software x264 (fallback)' });
       }
 
-      const available = HW_ENCODERS.filter(e => encoders[e.codec]).map(e => e.key);
-      console.log('[GPU] Available HW encoders:', available.length ? available : ['none (software only)']);
+      // Compile-time candidates, then runtime-verify each (sequentially — parallel
+      // encoder inits contend for the GPU and can spuriously fail).
+      const compiled = HW_ENCODERS.filter(e => encoders[e.codec]);
+      const available = [];
+      for (const e of compiled) {
+        // eslint-disable-next-line no-await-in-loop
+        const ok = await canInitEncoder(e.codec);
+        if (ok) available.push(e.key);
+        else console.log(`[GPU] ${e.codec} is compiled in but failed runtime init — excluding`);
+      }
+      console.log('[GPU] Usable HW encoders:', available.length ? available : ['none (software only)']);
 
-      // Pick highest-preference available encoder
+      // Pick highest-preference encoder that actually works.
       let best = 'none';
       let bestLabel = 'Software x264';
       for (const e of HW_ENCODERS) {
-        if (encoders[e.codec]) {
+        if (available.includes(e.key)) {
           best = e.key;
           bestLabel = e.label;
           break;

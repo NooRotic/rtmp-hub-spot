@@ -16,20 +16,35 @@ interface VideoFeedProps {
   setIsAudioEnabled?: (val: boolean) => void;
   /** The real LAN IP of the server, used to display the RTMP stream URL. */
   serverLocalIP?: string;
+  /** Detected best encoder (e.g. 'nvidia') used as the tile's default until the
+   *  user picks one from the dropdown. Falls back to 'none' (software). */
+  defaultHwAccel?: string;
 }
 
 const VideoFeed: React.FC<VideoFeedProps> = ({ 
   stream, label, isLocal, 
   isVideoEnabled = true, setIsVideoEnabled, 
   isAudioEnabled = true, setIsAudioEnabled,
-  serverLocalIP
+  serverLocalIP, defaultHwAccel
 }) => {
   const rtmpHost = serverLocalIP || window.location.hostname;
   const videoRef = useRef<HTMLVideoElement>(null);
   const { containerRef, titleBarProps, resizeHandleProps, containerStyle } = useNTWindow(label);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const [isPiping, setIsPiping] = useState(false);
-  const [hwAccel, setHwAccel] = useState('none');
+  const [hwAccel, setHwAccel] = useState(defaultHwAccel && defaultHwAccel !== 'none' ? defaultHwAccel : 'none');
+  const userPickedHwAccelRef = useRef(false);
+
+  // Adopt the detected best encoder as the tile default until the user picks one.
+  // The per-tile dropdown is otherwise born 'none' (software) regardless of GPU,
+  // which is why NVENC wasn't the default even on a 4080 box. A user override
+  // (onChange below latches the ref) is never clobbered.
+  useEffect(() => {
+    if (userPickedHwAccelRef.current) return;
+    if (defaultHwAccel && defaultHwAccel !== 'none' && defaultHwAccel !== hwAccel) {
+      setHwAccel(defaultHwAccel);
+    }
+  }, [defaultHwAccel]);
 
   useEffect(() => {
     if (videoRef.current && stream) {
@@ -112,7 +127,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
               className="inset-field" 
               style={{ fontSize: '9px', padding: '0' }}
               value={hwAccel}
-              onChange={(e) => setHwAccel(e.target.value)}
+              onChange={(e) => { userPickedHwAccelRef.current = true; setHwAccel(e.target.value); }}
             >
               <option value="none">Soft</option>
               <option value="nvidia">NVENC</option>

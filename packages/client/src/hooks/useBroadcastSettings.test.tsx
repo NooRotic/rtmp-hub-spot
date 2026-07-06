@@ -48,13 +48,33 @@ describe('useBroadcastSettings', () => {
     unmount();
   });
 
-  it('GPU detect does NOT override a persisted/explicit hwAccel', async () => {
-    localStorage.setItem('hub-hwaccel', 'nvenc');
+  it('GPU detect does NOT override a persisted choice that is still available', async () => {
+    localStorage.setItem('hub-hwaccel', 'nvidia');
     const { ipc } = makeFakeIpc();
-    (ipc.invoke as any).mockResolvedValue({ best: 'amf', bestLabel: 'AMD AMF', available: ['amf'] });
+    (ipc.invoke as any).mockResolvedValue({ best: 'amd', bestLabel: 'AMD AMF', available: ['nvidia', 'amd'] });
     const { result, unmount } = renderHook(() => useBroadcastSettings(ipc));
     await act(async () => {});
-    expect(result.current.hwAccel).toBe('nvenc'); // respected, not overwritten
+    expect(result.current.hwAccel).toBe('nvidia'); // still usable here → respected
+    unmount();
+  });
+
+  it('GPU detect resets a stale persisted encoder that is no longer available', async () => {
+    localStorage.setItem('hub-hwaccel', 'amd'); // stale: chosen on a different machine
+    const { ipc } = makeFakeIpc();
+    (ipc.invoke as any).mockResolvedValue({ best: 'nvidia', bestLabel: 'NVIDIA NVENC', available: ['nvidia'] });
+    const { result, unmount } = renderHook(() => useBroadcastSettings(ipc));
+    await act(async () => {});
+    expect(result.current.hwAccel).toBe('nvidia'); // 'amd' not usable here → reset to best
+    unmount();
+  });
+
+  it('GPU detect keeps a persisted choice when the probe returns no encoders', async () => {
+    localStorage.setItem('hub-hwaccel', 'nvidia');
+    const { ipc } = makeFakeIpc();
+    (ipc.invoke as any).mockResolvedValue({ best: 'none', bestLabel: 'Software x264', available: [] });
+    const { result, unmount } = renderHook(() => useBroadcastSettings(ipc));
+    await act(async () => {});
+    expect(result.current.hwAccel).toBe('nvidia'); // empty available → don't wipe the user's choice
     unmount();
   });
 });

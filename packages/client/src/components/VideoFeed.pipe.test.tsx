@@ -84,6 +84,15 @@ describe('VideoFeed → FFmpeg pipe (characterization)', () => {
     expect(chunks[0].payload.chunk).toBeInstanceOf(ArrayBuffer);
   });
 
+  it('defaults the encoder to the detected best (defaultHwAccel) and sends it on pipe-start', async () => {
+    render(<VideoFeed label="Cam One" stream={mockStream} defaultHwAccel="nvidia" />);
+    fireEvent.click(broadcastButton());
+    await fireChunk();
+
+    const starts = sent.filter((s) => s.channel === 'ffmpeg-pipe-start');
+    expect(starts[0].payload).toMatchObject({ streamKey: 'feed-cam-one', hwAccel: 'nvidia' });
+  });
+
   it('ignores empty (size 0) chunks', async () => {
     render(<VideoFeed label="Cam One" stream={mockStream} />);
     fireEvent.click(broadcastButton());

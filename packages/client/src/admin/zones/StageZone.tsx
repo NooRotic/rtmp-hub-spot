@@ -183,11 +183,12 @@ export function StageZone({
                 isAudioEnabled={isAudioEnabled}
                 setIsAudioEnabled={setIsAudioEnabled}
                 serverLocalIP={serverLocalIP}
+                defaultHwAccel={hwAccel}
               />
             )}
             {peers.map((peer) => (
               <div key={peer.id} style={{ position: 'relative' }}>
-                <VideoFeed stream={peer.stream} label={peer.name || `User ${peer.id.slice(0, 4)}`} serverLocalIP={serverLocalIP} />
+                <VideoFeed stream={peer.stream} label={peer.name || `User ${peer.id.slice(0, 4)}`} serverLocalIP={serverLocalIP} defaultHwAccel={hwAccel} />
                 {isAdminMode && (
                   <div style={{ position: 'absolute', top: 4, right: 4, zIndex: 2 }}>
                     <StageTileControls
