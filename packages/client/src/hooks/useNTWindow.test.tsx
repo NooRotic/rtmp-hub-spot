@@ -4,6 +4,8 @@ import { render, cleanup } from '../test/testUtils';
 import {
   useNTWindow,
   clampSize,
+  clampOffsetToViewport,
+  clampOffsetToBounds,
   isInteractiveTarget,
   applyOffset,
   MIN_WIDTH,
@@ -34,6 +36,32 @@ describe('useNTWindow pure helpers', () => {
   it('applyOffset adds the delta to the start point', () => {
     expect(applyOffset({ x: 5, y: 7 }, 10, -3)).toEqual({ x: 15, y: 4 });
     expect(applyOffset({ x: 0, y: 0 }, 0, 0)).toEqual({ x: 0, y: 0 });
+  });
+
+  it('clampOffsetToViewport keeps the tile rect inside the viewport', () => {
+    // On-screen candidate is unchanged.
+    expect(clampOffsetToViewport(0, 0, 200, 150, { x: 50, y: 60 }, 1024, 768)).toEqual({ x: 50, y: 60 });
+    // Pushed off the right/bottom: clamp so the right/bottom edge fits.
+    // maxLeft = 1024-200 = 824, maxTop = 768-150 = 618.
+    expect(clampOffsetToViewport(900, 700, 200, 150, { x: 300, y: 300 }, 1024, 768))
+      .toEqual({ x: 824 - 900, y: 618 - 700 });
+    // Pushed off the top/left: pin to 0.
+    expect(clampOffsetToViewport(10, 10, 200, 150, { x: -50, y: -50 }, 1024, 768)).toEqual({ x: -10, y: -10 });
+    // Tile larger than the viewport pins to the top-left corner (offset back to 0).
+    expect(clampOffsetToViewport(0, 0, 2000, 1500, { x: 40, y: 40 }, 1024, 768)).toEqual({ x: 0, y: 0 });
+  });
+
+  it('clampOffsetToBounds keeps the tile inside a non-origin stage box (below the header)', () => {
+    // Reproduces the real bug: gridview natural at (24, 622), 947x602, dragged with
+    // offset (1046, -622) to top-right under the header. Stage box is [14,102]..[1989,700].
+    const out = clampOffsetToBounds(24, 622, 947, 602, { x: 1046, y: -622 }, 14, 102, 1989, 700);
+    // maxLeft = 1989-947 = 1042 → desiredLeft 24+1046=1070 → clamp 1042 → x = 1046 + (1042-1070) = 1018
+    // maxTop  = max(102, 700-602=98) = 102 → desiredTop 0 → clamp to 102 → y = -622 + (102-0) = -520
+    expect(out).toEqual({ x: 1018, y: -520 });
+    // a candidate already inside the box is unchanged
+    expect(clampOffsetToBounds(100, 200, 300, 200, { x: 0, y: 0 }, 14, 102, 1989, 700)).toEqual({ x: 0, y: 0 });
+    // cannot be dragged above the box top (header)
+    expect(clampOffsetToBounds(100, 200, 300, 200, { x: 0, y: -500 }, 14, 102, 1989, 700)).toEqual({ x: 0, y: 102 - 200 });
   });
 
   it('isInteractiveTarget detects controls (the title-bar drag guard)', () => {

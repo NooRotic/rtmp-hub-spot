@@ -104,7 +104,7 @@ export function StageZone({
         <div className="window-title">
           <span>{isElectron ? 'Admin Video Hub' : 'Admin Monitor'}</span>
         </div>
-        <div className="window-content">
+        <div className="window-content" data-nt-stage>
           <div className="inset-field" style={{ marginBottom: '15px' }}>
             <div style={{ display: 'flex', gap: '10px', marginBottom: '10px', flexWrap: 'wrap' }}>
               <div style={{ flex: '1 1 auto', minWidth: '120px' }}>
