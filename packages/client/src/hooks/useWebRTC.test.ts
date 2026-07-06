@@ -12,7 +12,7 @@ import React, { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { useWebRTC } from './useWebRTC';
+import { useWebRTC, routeStreamToPeer } from './useWebRTC';
 
 vi.mock('socket.io-client', () => ({
   default: vi.fn(() => ({
@@ -120,6 +120,63 @@ describe('useWebRTC', () => {
   it('joinDenied initialises as null', () => {
     const { result } = renderHook(() => useWebRTC('main-hub'));
     expect(result.current.joinDenied).toBeNull();
+  });
+
+  it('routeStreamToPeer replaces outbound tracks in place, never stacking a duplicate stream', () => {
+    const oldVideo = { kind: 'video', id: 'oldV' };
+    const oldAudio = { kind: 'audio', id: 'oldA' };
+    const outbound = {
+      getVideoTracks: () => [oldVideo],
+      getAudioTracks: () => [oldAudio],
+    } as unknown as MediaStream;
+    const newVideo = { kind: 'video', id: 'newV' };
+    const newAudio = { kind: 'audio', id: 'newA' };
+    const incoming = {
+      getVideoTracks: () => [newVideo],
+      getAudioTracks: () => [newAudio],
+    } as unknown as MediaStream;
+    const peer = { streams: [outbound], replaceTrack: vi.fn(), addTrack: vi.fn(), addStream: vi.fn() };
+
+    routeStreamToPeer(peer, incoming);
+
+    // The old Elgato bug was a bare addStream (duplicate/stale track). Must NOT happen.
+    expect(peer.addStream).not.toHaveBeenCalled();
+    expect(peer.addTrack).not.toHaveBeenCalled();
+    expect(peer.replaceTrack).toHaveBeenCalledWith(oldVideo, newVideo, outbound);
+    expect(peer.replaceTrack).toHaveBeenCalledWith(oldAudio, newAudio, outbound);
+  });
+
+  it('routeStreamToPeer addStreams when the peer has no outbound stream yet (first grant)', () => {
+    const incoming = {
+      getVideoTracks: () => [{ kind: 'video' }],
+      getAudioTracks: () => [{ kind: 'audio' }],
+    } as unknown as MediaStream;
+    const peer = { streams: [], replaceTrack: vi.fn(), addTrack: vi.fn(), addStream: vi.fn() };
+
+    routeStreamToPeer(peer, incoming);
+
+    expect(peer.addStream).toHaveBeenCalledWith(incoming);
+    expect(peer.replaceTrack).not.toHaveBeenCalled();
+  });
+
+  it('routeStreamToPeer addTracks a kind the outbound stream is missing (no replace)', () => {
+    const oldAudio = { kind: 'audio', id: 'oldA' };
+    const outbound = {
+      getVideoTracks: () => [], // outbound has no video track to replace
+      getAudioTracks: () => [oldAudio],
+    } as unknown as MediaStream;
+    const newVideo = { kind: 'video', id: 'newV' };
+    const incoming = {
+      getVideoTracks: () => [newVideo],
+      getAudioTracks: () => [],
+    } as unknown as MediaStream;
+    const peer = { streams: [outbound], replaceTrack: vi.fn(), addTrack: vi.fn(), addStream: vi.fn() };
+
+    routeStreamToPeer(peer, incoming);
+
+    expect(peer.addTrack).toHaveBeenCalledWith(newVideo, outbound);
+    expect(peer.replaceTrack).not.toHaveBeenCalled();
+    expect(peer.addStream).not.toHaveBeenCalled();
   });
 
   it('includes pin in the join-room emit when connect() is called', async () => {

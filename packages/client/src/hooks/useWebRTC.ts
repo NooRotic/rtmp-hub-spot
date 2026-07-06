@@ -6,6 +6,41 @@ import { isElectron } from './useElectronBridge';
 export { isElectron };
 
 /**
+ * Route a local MediaStream onto an already-connected simple-peer, swapping each
+ * track IN PLACE on the peer's existing outbound stream (`peer.streams[0]`) via
+ * `replaceTrack` — seamless (no renegotiation) and, crucially, never stacking a
+ * second sender. Falls back to `addTrack` for a missing same-kind track, or
+ * `addStream` when the peer has no outbound stream yet.
+ *
+ * This is what a camera switch MUST use. The previous code did a bare
+ * `peer.addStream(newCamera)`, which left the old camera's sender live AND added a
+ * duplicate track, so remote clients kept rendering the stale camera (the Elgato
+ * "wrong feed" bug). Mirrors the proven override-stream effect below.
+ */
+export function routeStreamToPeer(peer: any, stream: MediaStream): void {
+  const outbound: MediaStream | undefined = peer?.streams?.[0];
+  const newVideo = stream.getVideoTracks()[0];
+  const newAudio = stream.getAudioTracks()[0];
+
+  if (!outbound) {
+    peer.addStream(stream);
+    return;
+  }
+
+  const oldVideo = outbound.getVideoTracks()[0];
+  const oldAudio = outbound.getAudioTracks()[0];
+
+  if (newVideo) {
+    if (oldVideo) peer.replaceTrack(oldVideo, newVideo, outbound);
+    else peer.addTrack(newVideo, outbound);
+  }
+  if (newAudio) {
+    if (oldAudio) peer.replaceTrack(oldAudio, newAudio, outbound);
+    else peer.addTrack(newAudio, outbound);
+  }
+}
+
+/**
  * Hook to manage Socket.io signaling and Simple-Peer connections for a Full Mesh WebRTC network.
  * 
  * Supports dynamically switching camera tracks or substituting entirely synthetic overrides (e.g. Grid capture streams).
@@ -433,18 +468,29 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
     navigator.mediaDevices.getUserMedia(constraints).then((stream) => {
       addLocalStatus('Camera access granted.');
       setCameraError(null);
+      const prevStream = cameraStreamRef.current;
       cameraStreamRef.current = stream;
       setCameraStream(stream);
 
-      // If we already have peers connected, add this new stream to them
-      peersRef.current.forEach(({ peer }) => {
-        if (!peer.streams.includes(stream)) {
-          console.log('[WebRTC] Adding new camera stream to existing peer');
-          peer.addStream(stream);
-        }
-      });
+      // Push the new camera onto live peers by REPLACING the outbound track in
+      // place (routeStreamToPeer) rather than adding a second stream. While a grid
+      // override is active the wire must keep the override, so only the local
+      // camera refs update here; the override effect's restore path re-applies
+      // cameraStreamRef when sharing ends.
+      if (!overrideStream) {
+        peersRef.current.forEach(({ peer }) => {
+          console.log('[WebRTC] Routing switched camera to existing peer');
+          routeStreamToPeer(peer, stream);
+        });
+        setUserStream(stream);
+      }
 
-      setUserStream(stream);
+      // Release the PREVIOUS camera so its hardware (and tally LED) frees and no
+      // stale duplicate track lingers on the wire. The sender has already swapped
+      // to the new track above, so stopping the old track here is safe.
+      if (prevStream && prevStream !== stream) {
+        prevStream.getTracks().forEach(t => t.stop());
+      }
     }).catch(err => {
       console.error('Error getting user media:', err);
       addLocalStatus(`Camera Error: ${err.name} - ${err.message}`);
