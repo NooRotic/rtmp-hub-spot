@@ -101,4 +101,27 @@ describe('StageZone', () => {
     })} />);
     expect(container.querySelectorAll('video').length).toBe(1);
   });
+
+  it('scopes the [data-nt-stage] box to the tiles/grid, excluding the camera/mic controls', () => {
+    // Regression: the marker used to sit on the whole .window-content, so a
+    // dragged/restored NT window clamped to the top of the controls and covered
+    // the camera/mic selectors. The stage box must start BELOW the controls.
+    const { container } = render(<StageZone {...baseProps({
+      isElectron: true,
+      peerControls: {
+        ...baseProps().peerControls,
+        peers: [{ id: 'peer-1', name: 'Guest', stream: new MediaStream() }],
+      },
+    })} />);
+    const stage = container.querySelector('[data-nt-stage]');
+    expect(stage).not.toBeNull();
+    // Camera/mic <select>s live ABOVE the stage box — never inside it.
+    const selects = container.querySelectorAll('select');
+    expect(selects.length).toBeGreaterThan(0);
+    selects.forEach((sel) => expect(stage!.contains(sel)).toBe(false));
+    // The peer tile (its <video>) lives INSIDE the stage box.
+    const video = container.querySelector('video');
+    expect(video).not.toBeNull();
+    expect(stage!.contains(video)).toBe(true);
+  });
 });
