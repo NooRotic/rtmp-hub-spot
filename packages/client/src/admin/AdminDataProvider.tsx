@@ -1,4 +1,4 @@
-import { createContext, useContext, type ReactNode, type Dispatch, type SetStateAction } from 'react';
+import { createContext, useContext, useMemo, type ReactNode, type Dispatch, type SetStateAction } from 'react';
 import type { RtmpDestination, DestinationBinding } from '../../../shared';
 import type { SourceRow } from './sources';
 import type { RelayEntry } from '../hooks/useRelays';
@@ -18,9 +18,16 @@ export interface AdminServerStatus {
 
 /**
  * The single G1 (restream / telemetry / settings / connection) data surface the
- * re-skinned admin tree consumes. Assembled by App from its existing hooks and
- * passed to AdminDataProvider as `value` (pass-through context — the provider does
- * not call hooks, so App remains the single subscriber).
+ * re-skinned admin tree consumes. Assembled by App from its existing hooks.
+ *
+ * Phase 3 splits this surface into two contexts so stable consumers stop
+ * re-rendering on the 5 s telemetry tick:
+ *  - TELEMETRY (volatile): mutates every tick — connection + live server state.
+ *  - ACTIONS (stable): identity survives a tick — config, actions, room access.
+ *
+ * `AdminData` is kept as the combined shape; `AdminTelemetry` / `AdminActions`
+ * are derived field slices of it. The back-compat `AdminDataProvider` shim still
+ * accepts a single combined `value` and renders both context providers nested.
  */
 export interface AdminData {
   socketStatus: string;
@@ -65,17 +72,92 @@ export interface AdminData {
   refreshTelemetry: () => void;
 }
 
-const AdminDataContext = createContext<AdminData | null>(null);
+/** Volatile slice — mutates on the 5 s telemetry tick. */
+export type AdminTelemetry = Pick<
+  AdminData,
+  'socketStatus' | 'isConnected' | 'serverStatus' | 'relays' | 'ffmpeg' | 'recordings' | 'sources'
+>;
 
-export function AdminDataProvider({ value, children }: { value: AdminData; children: ReactNode }) {
-  return <AdminDataContext.Provider value={value}>{children}</AdminDataContext.Provider>;
-}
+/** Stable slice — identity survives a telemetry tick. */
+export type AdminActions = Pick<
+  AdminData,
+  'destinations' | 'bindings' | 'destinationActions' | 'settings' | 'roomAccess' | 'previewOpen' | 'setPreviewOpen' | 'refreshTelemetry'
+>;
 
-/** Read the admin data. Throws if used outside an AdminDataProvider. */
-export function useAdminData(): AdminData {
-  const ctx = useContext(AdminDataContext);
+const AdminActionsContext = createContext<AdminActions | null>(null);
+const AdminTelemetryContext = createContext<AdminTelemetry | null>(null);
+
+export { AdminActionsContext, AdminTelemetryContext };
+
+/** Read the stable (actions) admin slice. Throws if used outside an AdminActionsContext provider. */
+export function useAdminActions(): AdminActions {
+  const ctx = useContext(AdminActionsContext);
   if (ctx === null) {
-    throw new Error('useAdminData must be used within an AdminDataProvider');
+    throw new Error('useAdminActions must be used within an AdminActionsContext provider');
   }
   return ctx;
+}
+
+/** Read the volatile (telemetry) admin slice. Throws if used outside an AdminTelemetryContext provider. */
+export function useAdminTelemetry(): AdminTelemetry {
+  const ctx = useContext(AdminTelemetryContext);
+  if (ctx === null) {
+    throw new Error('useAdminTelemetry must be used within an AdminTelemetryContext provider');
+  }
+  return ctx;
+}
+
+/**
+ * Back-compat combined provider. Accepts the single `value` of the old
+ * `AdminData` shape and derives the two slices from it (memoized on `value`
+ * identity), rendering both context providers nested.
+ *
+ * Production no longer uses this (AdminApp builds two disjoint memos directly so
+ * the actions slice survives a telemetry tick); it exists so existing tests that
+ * wrap `<AdminDataProvider value={combinedObject}>` keep working unchanged —
+ * their `value` is static, so deriving slices on `value` identity is fine.
+ */
+export function AdminDataProvider({ value, children }: { value: AdminData; children: ReactNode }) {
+  const actions = useMemo<AdminActions>(() => ({
+    destinations: value.destinations,
+    bindings: value.bindings,
+    destinationActions: value.destinationActions,
+    settings: value.settings,
+    roomAccess: value.roomAccess,
+    previewOpen: value.previewOpen,
+    setPreviewOpen: value.setPreviewOpen,
+    refreshTelemetry: value.refreshTelemetry,
+  }), [value]);
+
+  const telemetry = useMemo<AdminTelemetry>(() => ({
+    socketStatus: value.socketStatus,
+    isConnected: value.isConnected,
+    serverStatus: value.serverStatus,
+    relays: value.relays,
+    ffmpeg: value.ffmpeg,
+    recordings: value.recordings,
+    sources: value.sources,
+  }), [value]);
+
+  return (
+    <AdminActionsContext.Provider value={actions}>
+      <AdminTelemetryContext.Provider value={telemetry}>
+        {children}
+      </AdminTelemetryContext.Provider>
+    </AdminActionsContext.Provider>
+  );
+}
+
+/**
+ * Back-compat combined reader. Recombines the two slices into the old `AdminData`
+ * shape. Kept exported (and tested) even though production now reads the split
+ * hooks directly — some tests / external callers may still depend on it.
+ */
+export function useAdminData(): AdminData {
+  const actions = useContext(AdminActionsContext);
+  const telemetry = useContext(AdminTelemetryContext);
+  if (actions === null || telemetry === null) {
+    throw new Error('useAdminData must be used within an AdminDataProvider');
+  }
+  return { ...telemetry, ...actions };
 }

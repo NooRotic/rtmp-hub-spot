@@ -1,10 +1,10 @@
-import { useAdminData } from '../AdminDataProvider';
+import { useAdminTelemetry } from '../AdminDataProvider';
 import { NTButton } from '../../ui/NTButton';
 
 /** Dark-NT Active Recordings panel (spec §4 Recordings tab). Behavior mirrors the
  *  legacy sidebar section; styling refined live. */
 export function RecordingsTab() {
-  const { recordings } = useAdminData();
+  const { recordings } = useAdminTelemetry();
   const { active, now, stop, openDir } = recordings;
 
   return (

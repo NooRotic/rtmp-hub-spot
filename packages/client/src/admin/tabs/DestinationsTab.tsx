@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { RtmpDestination } from '../../../../shared';
-import { useAdminData } from '../AdminDataProvider';
+import { useAdminActions, useAdminTelemetry } from '../AdminDataProvider';
 import { relayKey } from '../../hooks/useRelays';
 import { platformInfo } from '../platforms';
 import { maskKey } from '../maskKey';
@@ -10,7 +10,8 @@ import { DestinationForm } from './DestinationForm';
 
 /** Destinations tab (spec §4/§8): manage the destination library + bind to sources w/ live relay status. */
 export function DestinationsTab() {
-  const { destinations, bindings, relays, sources, destinationActions } = useAdminData();
+  const { destinations, bindings, destinationActions } = useAdminActions();
+  const { relays, sources } = useAdminTelemetry();
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<RtmpDestination | null>(null);
 

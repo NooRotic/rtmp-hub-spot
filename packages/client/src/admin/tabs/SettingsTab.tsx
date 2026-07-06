@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import { useRef } from 'react';
-import { useAdminData } from '../AdminDataProvider';
+import { useAdminActions } from '../AdminDataProvider';
 import { NTButton } from '../../ui/NTButton';
 
 const BITRATES = [
@@ -27,7 +27,7 @@ const sel: CSSProperties = { width: '100%' };
 /** Dark-NT Broadcast Settings (spec §4 Settings tab). Behavior mirrors the legacy
  *  section; styling refined live. Option values are preserved exactly. */
 export function SettingsTab() {
-  const { settings, roomAccess } = useAdminData();
+  const { settings, roomAccess } = useAdminActions();
   const { bitrate, setBitrate, preset, setPreset, hwAccel, setHwAccel, detectedEncoder } = settings;
   const pinRef = useRef<HTMLInputElement>(null);
 

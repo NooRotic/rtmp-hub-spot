@@ -1,4 +1,4 @@
-import { useAdminData } from './AdminDataProvider';
+import { useAdminActions, useAdminTelemetry } from './AdminDataProvider';
 import { serverRollup } from './serverRollup';
 import { StatusDot } from '../ui/StatusDot';
 import { NTButton } from '../ui/NTButton';
@@ -18,7 +18,8 @@ interface AdminTopBarProps {
  * Standalone — not yet wired into AdminApp; a later task swaps it in.
  */
 export function AdminTopBar({ onSettings, onChat, onRecordings, onAddFeed, chatUnread = 0 }: AdminTopBarProps) {
-  const { socketStatus, isConnected, serverStatus, sources, relays, roomAccess } = useAdminData();
+  const { socketStatus, isConnected, serverStatus, sources, relays } = useAdminTelemetry();
+  const { roomAccess } = useAdminActions();
   const { liveSources, activeDestinations } = serverRollup(sources, relays);
 
   const signalState = isConnected ? 'live' : socketStatus === 'connecting' ? 'connecting' : 'error';

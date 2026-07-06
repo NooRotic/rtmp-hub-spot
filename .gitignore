@@ -19,3 +19,7 @@ coverage/
 
 # Local debug screenshots (not for the repo)
 docs/debugging/
+
+# Local Hindsight memory-integration scaffold (not part of the app)
+/config.yaml
+/hindsight_integration.py

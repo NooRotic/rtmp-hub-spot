@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { RtmpDestination } from '../../../../shared';
-import { useAdminData } from '../AdminDataProvider';
+import { useAdminActions, useAdminTelemetry } from '../AdminDataProvider';
 import { relayKey } from '../../hooks/useRelays';
 import { StatusTag } from '../../ui/StatusTag';
 import { NTButton } from '../../ui/NTButton';
@@ -12,7 +12,8 @@ import { ConsoleSourceRow } from './ConsoleSourceRow';
 
 /** Persistent broadcast dock: FFmpeg health chip + SOURCES lane + OUTPUTS (restream) lane. */
 export function BroadcastConsole() {
-  const { ffmpeg, sources, destinations, bindings, relays, destinationActions, serverStatus, recordings } = useAdminData();
+  const { ffmpeg, sources, relays, serverStatus, recordings } = useAdminTelemetry();
+  const { destinations, bindings, destinationActions } = useAdminActions();
   const consoleSources = deriveConsoleSources(serverStatus);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<RtmpDestination | null>(null);
