@@ -465,10 +465,24 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
 
     addLocalStatus('Requesting camera/mic access...');
     setCameraError(null); // clear before a fresh attempt
+
+    // Release the currently-held camera BEFORE requesting the next device.
+    // Exclusive-access cameras (the Elgato, many webcams) throw NotReadableError
+    // "Device in use" if the old track still holds the hardware when getUserMedia
+    // runs for a switch — most visibly while the grid is broadcasting and the old
+    // camera has extra consumers. Freeing it first makes the switch reliable and
+    // releases the old device's tally LED. Trade-off: a live peer's video briefly
+    // freezes between the stop here and the replaceTrack below (getUserMedia
+    // latency) — acceptable, and far better than a switch that silently fails.
+    const prevStream = cameraStreamRef.current;
+    if (prevStream) {
+      prevStream.getTracks().forEach(t => t.stop());
+      cameraStreamRef.current = null;
+    }
+
     navigator.mediaDevices.getUserMedia(constraints).then((stream) => {
       addLocalStatus('Camera access granted.');
       setCameraError(null);
-      const prevStream = cameraStreamRef.current;
       cameraStreamRef.current = stream;
       setCameraStream(stream);
 
@@ -483,13 +497,6 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
           routeStreamToPeer(peer, stream);
         });
         setUserStream(stream);
-      }
-
-      // Release the PREVIOUS camera so its hardware (and tally LED) frees and no
-      // stale duplicate track lingers on the wire. The sender has already swapped
-      // to the new track above, so stopping the old track here is safe.
-      if (prevStream && prevStream !== stream) {
-        prevStream.getTracks().forEach(t => t.stop());
       }
     }).catch(err => {
       console.error('Error getting user media:', err);
