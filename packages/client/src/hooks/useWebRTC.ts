@@ -6,6 +6,77 @@ import { isElectron } from './useElectronBridge';
 export { isElectron };
 
 /**
+ * Route a local MediaStream onto an already-connected simple-peer, swapping each
+ * track IN PLACE on the peer's existing outbound stream (`peer.streams[0]`) via
+ * `replaceTrack` — seamless (no renegotiation) and, crucially, never stacking a
+ * second sender. Falls back to `addTrack` for a missing same-kind track, or
+ * `addStream` when the peer has no outbound stream yet.
+ *
+ * This is what a camera switch MUST use. The previous code did a bare
+ * `peer.addStream(newCamera)`, which left the old camera's sender live AND added a
+ * duplicate track, so remote clients kept rendering the stale camera (the Elgato
+ * "wrong feed" bug). Mirrors the proven override-stream effect below.
+ */
+export function routeStreamToPeer(peer: any, stream: MediaStream): void {
+  const outbound: MediaStream | undefined = peer?.streams?.[0];
+  const newVideo = stream.getVideoTracks()[0];
+  const newAudio = stream.getAudioTracks()[0];
+
+  if (!outbound) {
+    peer.addStream(stream);
+    return;
+  }
+
+  const oldVideo = outbound.getVideoTracks()[0];
+  const oldAudio = outbound.getAudioTracks()[0];
+
+  if (newVideo) {
+    if (oldVideo) peer.replaceTrack(oldVideo, newVideo, outbound);
+    else peer.addTrack(newVideo, outbound);
+  }
+  if (newAudio) {
+    if (oldAudio) peer.replaceTrack(oldAudio, newAudio, outbound);
+    else peer.addTrack(newAudio, outbound);
+  }
+}
+
+/**
+ * getUserMedia with a short retry on NotReadableError. `MediaStreamTrack.stop()`
+ * releases the underlying OS device handle ASYNCHRONOUSLY, so re-acquiring right
+ * after a camera switch can transiently fail with "Device in use" / "Could not
+ * start video source" even though the device frees a moment later (very reliable
+ * with the Elgato, especially while OBS also touches it). Retry a few times with a
+ * short backoff before surfacing the error. Any non-transient error (permission,
+ * not-found, overconstrained) fails fast on the first try.
+ *
+ * @param getUserMedia the acquire fn (injectable for tests)
+ * @param constraints  MediaStreamConstraints to request
+ * @param attempts     total tries including the first (default 5)
+ * @param delayMs      backoff between tries (default 200)
+ * @param onRetry      optional callback(attemptJustFailed) for status UI
+ */
+export async function acquireStreamWithRetry(
+  getUserMedia: (c: MediaStreamConstraints) => Promise<MediaStream>,
+  constraints: MediaStreamConstraints,
+  attempts = 5,
+  delayMs = 200,
+  onRetry?: (attempt: number) => void,
+): Promise<MediaStream> {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await getUserMedia(constraints);
+    } catch (err) {
+      const transient = !!err && (err as { name?: string }).name === 'NotReadableError';
+      if (!transient || i === attempts - 1) throw err;
+      onRetry?.(i + 1);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  // Unreachable (loop either returns or throws), but satisfies the return type.
+  throw new Error('acquireStreamWithRetry: exhausted');
+}
+
+/**
  * Hook to manage Socket.io signaling and Simple-Peer connections for a Full Mesh WebRTC network.
  * 
  * Supports dynamically switching camera tracks or substituting entirely synthetic overrides (e.g. Grid capture streams).
@@ -430,21 +501,45 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
 
     addLocalStatus('Requesting camera/mic access...');
     setCameraError(null); // clear before a fresh attempt
-    navigator.mediaDevices.getUserMedia(constraints).then((stream) => {
+
+    // Release the currently-held camera BEFORE requesting the next device.
+    // Exclusive-access cameras (the Elgato, many webcams) throw NotReadableError
+    // "Device in use" if the old track still holds the hardware when getUserMedia
+    // runs for a switch — most visibly while the grid is broadcasting and the old
+    // camera has extra consumers. Freeing it first makes the switch reliable and
+    // releases the old device's tally LED. Trade-off: a live peer's video briefly
+    // freezes between the stop here and the replaceTrack below (getUserMedia
+    // latency) — acceptable, and far better than a switch that silently fails.
+    const prevStream = cameraStreamRef.current;
+    if (prevStream) {
+      prevStream.getTracks().forEach(t => t.stop());
+      cameraStreamRef.current = null;
+    }
+
+    acquireStreamWithRetry(
+      (c) => navigator.mediaDevices.getUserMedia(c),
+      constraints,
+      5,
+      200,
+      (n) => addLocalStatus(`Camera busy — retrying (${n})…`),
+    ).then((stream) => {
       addLocalStatus('Camera access granted.');
       setCameraError(null);
       cameraStreamRef.current = stream;
       setCameraStream(stream);
 
-      // If we already have peers connected, add this new stream to them
-      peersRef.current.forEach(({ peer }) => {
-        if (!peer.streams.includes(stream)) {
-          console.log('[WebRTC] Adding new camera stream to existing peer');
-          peer.addStream(stream);
-        }
-      });
-
-      setUserStream(stream);
+      // Push the new camera onto live peers by REPLACING the outbound track in
+      // place (routeStreamToPeer) rather than adding a second stream. While a grid
+      // override is active the wire must keep the override, so only the local
+      // camera refs update here; the override effect's restore path re-applies
+      // cameraStreamRef when sharing ends.
+      if (!overrideStream) {
+        peersRef.current.forEach(({ peer }) => {
+          console.log('[WebRTC] Routing switched camera to existing peer');
+          routeStreamToPeer(peer, stream);
+        });
+        setUserStream(stream);
+      }
     }).catch(err => {
       console.error('Error getting user media:', err);
       addLocalStatus(`Camera Error: ${err.name} - ${err.message}`);
