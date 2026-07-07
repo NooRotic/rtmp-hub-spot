@@ -41,6 +41,42 @@ export function routeStreamToPeer(peer: any, stream: MediaStream): void {
 }
 
 /**
+ * getUserMedia with a short retry on NotReadableError. `MediaStreamTrack.stop()`
+ * releases the underlying OS device handle ASYNCHRONOUSLY, so re-acquiring right
+ * after a camera switch can transiently fail with "Device in use" / "Could not
+ * start video source" even though the device frees a moment later (very reliable
+ * with the Elgato, especially while OBS also touches it). Retry a few times with a
+ * short backoff before surfacing the error. Any non-transient error (permission,
+ * not-found, overconstrained) fails fast on the first try.
+ *
+ * @param getUserMedia the acquire fn (injectable for tests)
+ * @param constraints  MediaStreamConstraints to request
+ * @param attempts     total tries including the first (default 5)
+ * @param delayMs      backoff between tries (default 200)
+ * @param onRetry      optional callback(attemptJustFailed) for status UI
+ */
+export async function acquireStreamWithRetry(
+  getUserMedia: (c: MediaStreamConstraints) => Promise<MediaStream>,
+  constraints: MediaStreamConstraints,
+  attempts = 5,
+  delayMs = 200,
+  onRetry?: (attempt: number) => void,
+): Promise<MediaStream> {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await getUserMedia(constraints);
+    } catch (err) {
+      const transient = !!err && (err as { name?: string }).name === 'NotReadableError';
+      if (!transient || i === attempts - 1) throw err;
+      onRetry?.(i + 1);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  // Unreachable (loop either returns or throws), but satisfies the return type.
+  throw new Error('acquireStreamWithRetry: exhausted');
+}
+
+/**
  * Hook to manage Socket.io signaling and Simple-Peer connections for a Full Mesh WebRTC network.
  * 
  * Supports dynamically switching camera tracks or substituting entirely synthetic overrides (e.g. Grid capture streams).
@@ -480,7 +516,13 @@ export const useWebRTC = (roomId: string, options: { videoId?: string; audioId?:
       cameraStreamRef.current = null;
     }
 
-    navigator.mediaDevices.getUserMedia(constraints).then((stream) => {
+    acquireStreamWithRetry(
+      (c) => navigator.mediaDevices.getUserMedia(c),
+      constraints,
+      5,
+      200,
+      (n) => addLocalStatus(`Camera busy — retrying (${n})…`),
+    ).then((stream) => {
       addLocalStatus('Camera access granted.');
       setCameraError(null);
       cameraStreamRef.current = stream;

@@ -12,7 +12,9 @@ import React, { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { useWebRTC, routeStreamToPeer } from './useWebRTC';
+import { useWebRTC, routeStreamToPeer, acquireStreamWithRetry } from './useWebRTC';
+
+const notReadable = () => Object.assign(new Error('Device in use'), { name: 'NotReadableError' });
 
 vi.mock('socket.io-client', () => ({
   default: vi.fn(() => ({
@@ -177,6 +179,33 @@ describe('useWebRTC', () => {
     expect(peer.addTrack).toHaveBeenCalledWith(newVideo, outbound);
     expect(peer.replaceTrack).not.toHaveBeenCalled();
     expect(peer.addStream).not.toHaveBeenCalled();
+  });
+
+  it('acquireStreamWithRetry retries a transient NotReadableError, then resolves', async () => {
+    const fakeStream = {} as MediaStream;
+    let calls = 0;
+    const gUM = vi.fn(async () => {
+      calls++;
+      if (calls < 3) throw notReadable(); // device still releasing on the first two tries
+      return fakeStream;
+    });
+    const onRetry = vi.fn();
+    const s = await acquireStreamWithRetry(gUM, {} as MediaStreamConstraints, 5, 0, onRetry);
+    expect(s).toBe(fakeStream);
+    expect(gUM).toHaveBeenCalledTimes(3);
+    expect(onRetry).toHaveBeenCalledTimes(2);
+  });
+
+  it('acquireStreamWithRetry fails fast on a non-NotReadable error (no retry)', async () => {
+    const gUM = vi.fn(async () => { throw Object.assign(new Error('nope'), { name: 'NotAllowedError' }); });
+    await expect(acquireStreamWithRetry(gUM, {} as MediaStreamConstraints, 5, 0)).rejects.toThrow('nope');
+    expect(gUM).toHaveBeenCalledTimes(1);
+  });
+
+  it('acquireStreamWithRetry gives up and rethrows after the attempt cap', async () => {
+    const gUM = vi.fn(async () => { throw notReadable(); });
+    await expect(acquireStreamWithRetry(gUM, {} as MediaStreamConstraints, 3, 0)).rejects.toMatchObject({ name: 'NotReadableError' });
+    expect(gUM).toHaveBeenCalledTimes(3);
   });
 
   it('includes pin in the join-room emit when connect() is called', async () => {
