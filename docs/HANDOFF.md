@@ -1,15 +1,17 @@
 # Dev Handoff — rtmp-hub-spot
 
-_Last updated: 2026-07-07. **`main` is clean** @ `5a12e93` — the AdminApp refactor, WebRTC/NT-UX
+_Last updated: 2026-09-24 (plan refresh only; code unchanged since 2026-07-07). **`main` is clean** @ `c77d249` — the AdminApp refactor, WebRTC/NT-UX
 work, and three follow-up fixes (PRs #14–#18) are all merged; feature branches deleted. Camera
-switching, LAN-IP display, and the NT-window stage bounds are validated on real hardware. Active
-branch: `chore/next-tasks` (no commits yet)._
+switching, LAN-IP display, and the NT-window stage bounds are validated on real hardware. No feature
+branch is open — `chore/next-tasks` was never created._
 
-> **▶ RESUME HERE — PAUSED 2026-07-07 for a job interview.** The current goal is **MVP / public
-> release**. The full prioritized plan is **`docs/RELEASE-TODO.md`** (P1/P2/P3, with file:line refs).
-> **Start with P1‑Packaging:** the shipped `.exe` is currently broken two ways — (1) `build.files`
-> omits `room-pin.js`+`local-ip.js` so it won't launch, and (2) `ffmpeg-static` isn't `asarUnpack`ed so
-> it can't broadcast. Both are ~30-min fixes. See RELEASE-TODO.md for the rest.
+> **▶ RESUME HERE — re-planned 2026-09-24 (Fable).** Goal is still **MVP / public release**;
+> nothing was implemented between 2026-07-07 and 2026-09-24 (`main` @ `c77d249`, clean). The
+> WHAT is `docs/RELEASE-TODO.md`; the HOW is now **`docs/plans/004-release-p1-execution.md`** —
+> a PR-by-PR plan with copy-pasteable edits, tests, model routing (Haiku/Sonnet/Opus per PR) and
+> a human-only hardware checklist. **Start with PR-0 (gitignore) then PR-1 (packaging fix).**
+> The packaged `.exe` is still broken two ways (`build.files` omits `room-pin.js`+`local-ip.js`;
+> no `asarUnpack` for ffmpeg-static) — both re-verified 2026-09-24.
 
 ## What this project is
 RTMP/WebRTC client-server hub with a retro WinNT UI. npm workspaces:
