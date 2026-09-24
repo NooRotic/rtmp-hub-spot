@@ -17,7 +17,7 @@
   "devDependencies": {
     "@vitest/coverage-v8": "^1.6.1",
     "cross-env": "^10.1.0",
-    "electron": "^40.4.0",
+    "electron": "40.4.0",
     "electron-builder": "^26.7.0",
     "ts-loader": "^9.5.4",
     "ts-node": "^10.9.2",
@@ -41,22 +41,14 @@
       "output": "../../dist"
     },
     "files": [
-      "main.js",
-      "preload.js",
-      "cert-trust.js",
-      "ffmpeg-args.js",
-      "pipe-manager.js",
-      "destinationStore.js",
-      "destinationHandlers.js",
-      "ffmpeg-progress.js",
-      "relay-args.js",
-      "relay-manager.js",
-      "reconnection-supervisor.js",
-      "broadcast-orchestrator.js",
-      "nms-session.js",
+      "*.js",
+      "!*.test.js",
       "package.json",
       "assets/**/*",
       "../client/dist/**/*"
+    ],
+    "asarUnpack": [
+      "**/node_modules/ffmpeg-static/**"
     ],
     "win": {
       "icon": "assets/icon.png",
