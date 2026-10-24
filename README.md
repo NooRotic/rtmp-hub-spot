@@ -165,7 +165,7 @@ RTMP Hub Spot is built for a local network you trust. This is what `main` does t
 
 **In place:**
 
-- **LAN by default.** The servers bind `0.0.0.0` so phones on the same Wi-Fi can reach them. Set `RHS_BIND_LOOPBACK=1` to bind to `127.0.0.1` only, or `BIND_IP` to pick one address. There is no TURN server, and nothing is set up for guests outside the local network.
+- **LAN by default.** The servers bind `0.0.0.0` so phones on the same Wi-Fi can reach them. Set `RHS_BIND_LOOPBACK=1` to bind to `127.0.0.1` only, or `BIND_IP` to pick one address. `BIND_IP` wins when both are set, and `packages/server/.env.example` sets it to `0.0.0.0`, so drop that line from your copy if you want loopback. There is no TURN server, and nothing is set up for guests outside the local network.
 - **Room PIN, optional.** Set it in **⚙ Settings → Room Access**. The server checks it before a guest can join the room or see who is in it, and the top bar shows 🔒 while a PIN is set. Five wrong tries from one address lock that address out for 60 seconds. The PIN is saved in the app's user-data folder.
 - **Host exempt by token.** The host window skips the PIN by presenting a per-launch token it gets over Electron IPC (see above). Address alone earns no trust.
 - **Joined sockets only.** The server ignores offers, answers, ICE candidates and chat from sockets that haven't joined the room, and accepts **✕** (kick) only from the host.
