@@ -292,7 +292,7 @@ const GridView: React.FC<GridViewProps> = ({
     if (isPiping) {
       clearStallWatchdog();
       mediaRecorderRef.current?.stop();
-      ipc.send('ffmpeg-pipe-stop');
+      ipc.send('ffmpeg-pipe-stop', { streamKey: 'grid' }); // keyed: don't stop feed pipes
       setIsPiping(false);
     } else {
       setBroadcastError(null);

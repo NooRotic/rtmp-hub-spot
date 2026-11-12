@@ -108,7 +108,8 @@ function createPipeManager({ spawnPipe, PassThrough, buildFfmpegArgs, broadcastI
 
     broadcastIPC('ffmpeg-status', { state: 'error', streamKey, message });
     if (ctx && ctx.sender && !(ctx.sender.isDestroyed && ctx.sender.isDestroyed())) {
-      ctx.sender.send('ffmpeg-error', message);
+      // Keyed so each renderer listener can ignore errors from other pipes.
+      ctx.sender.send('ffmpeg-error', { streamKey, message });
     }
 
     if (!entry || entry.restartCount >= maxRestarts) {

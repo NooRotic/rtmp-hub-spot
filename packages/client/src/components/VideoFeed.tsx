@@ -31,6 +31,9 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
   const videoRef = useRef<HTMLVideoElement>(null);
   const { containerRef, titleBarProps, resizeHandleProps, containerStyle } = useNTWindow(label);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  // streamKey this tile's pipe was started with — stop/error must use it, not the
+  // current label, so they only ever touch this feed's pipe.
+  const pipeKeyRef = useRef<string | null>(null);
   const [isPiping, setIsPiping] = useState(false);
   const [hwAccel, setHwAccel] = useState(defaultHwAccel && defaultHwAccel !== 'none' ? defaultHwAccel : 'none');
   const userPickedHwAccelRef = useRef(false);
@@ -57,10 +60,12 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
 
     if (isPiping) {
       mediaRecorderRef.current?.stop();
-      ipc.send('ffmpeg-pipe-stop');
+      // Keyed stop: a keyless stop makes main stopAll() and kills the grid too.
+      ipc.send('ffmpeg-pipe-stop', { streamKey: pipeKeyRef.current ?? feedKey(label) });
       setIsPiping(false);
     } else {
       const streamKey = feedKey(label);
+      pipeKeyRef.current = streamKey;
       const mimeType = MediaRecorder.isTypeSupported('video/webm; codecs=vp8')
         ? 'video/webm; codecs=vp8'
         : 'video/webm';
@@ -87,8 +92,10 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
 
   useEffect(() => {
     if (!ipc) return;
-    const handleError = (_: any, msg: string) => {
-      console.error('[FFMPEG Error]', msg);
+    const handleError = (_: any, data: { streamKey?: string; message?: string }) => {
+      // Every tile hears every ffmpeg-error; only react to our own pipe's.
+      if (data?.streamKey !== pipeKeyRef.current) return;
+      console.error('[FFMPEG Error]', data.streamKey, data.message);
       setIsPiping(false);
     };
     ipc.on('ffmpeg-error', handleError);

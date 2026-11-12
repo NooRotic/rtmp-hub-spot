@@ -106,6 +106,22 @@ describe('pipe-manager', () => {
     expect(manager.size()).toBe(0);
   });
 
+  it('sends ffmpeg-error to the renderer keyed by the failing pipe\'s streamKey', () => {
+    const { manager, spawned } = makeManager();
+    const sender = { send: vi.fn(), isDestroyed: () => false };
+    manager.start({ streamKey: 'grid', hwAccel: 'none' }, { sender });
+    manager.start({ streamKey: 'feed-alice', hwAccel: 'none' }, { sender });
+
+    spawned[1].handlers.onError(new Error('ffmpeg exited with code 1'));
+
+    const errors = sender.send.mock.calls.filter(([channel]) => channel === 'ffmpeg-error');
+    expect(errors).toHaveLength(1);
+    // Keyed so a grid tile / other feed tiles can ignore it (was a bare message string).
+    expect(errors[0][1]).toEqual({ streamKey: 'feed-alice', message: 'ffmpeg exited with code 1' });
+
+    manager.stopAll(); // clears the pending auto-restart timer
+  });
+
   describe('observability — failures are LOUD (logged), not silent', () => {
     it('log.error()s the ffmpeg error message AND the captured stderr tail on a crash', () => {
       const { manager, spawned, log } = makeManager();

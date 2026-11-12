@@ -100,14 +100,17 @@ describe('GridView → FFmpeg pipe (characterization)', () => {
     expect(sent.filter((s) => s.channel === 'ffmpeg-pipe-chunk')).toHaveLength(0);
   });
 
-  it('sends ffmpeg-pipe-stop and stops the recorder when toggled off', async () => {
+  it('sends ffmpeg-pipe-stop keyed "grid" and stops the recorder when toggled off', async () => {
     render(<GridView streams={[]} />);
     fireEvent.click(startButton());
     await fireChunk();
 
     fireEvent.click(screen.getByRole('button', { name: /stop grid broadcast/i }));
 
-    expect(sent.some((s) => s.channel === 'ffmpeg-pipe-stop')).toBe(true);
+    const stops = sent.filter((s) => s.channel === 'ffmpeg-pipe-stop');
+    expect(stops).toHaveLength(1);
+    // A keyless stop makes main stopAll() — which would kill running feed pipes.
+    expect(stops[0].payload).toEqual({ streamKey: 'grid' });
     expect(lastRecorder.stop).toHaveBeenCalled();
   });
 
