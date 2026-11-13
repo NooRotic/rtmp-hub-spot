@@ -36,7 +36,10 @@ const { Server } = require('socket.io');
 const http = require('http');
 const express = require('express');
 const ffmpeg = require('fluent-ffmpeg');
-const ffmpegStatic = require('ffmpeg-static');
+// electron-builder packs node_modules into app.asar, which cannot be spawned.
+// asarUnpack (package.json) keeps the binary on disk under app.asar.unpacked;
+// rewrite the path so fluent-ffmpeg + execFile (canInitEncoder, :775) find it.
+const ffmpegStatic = require('ffmpeg-static').replace('app.asar', 'app.asar.unpacked');
 const fs = require('fs');
 require('dotenv').config();
 
