@@ -96,6 +96,13 @@ const VideoFeed: React.FC<VideoFeedProps> = ({
       // Every tile hears every ffmpeg-error; only react to our own pipe's.
       if (data?.streamKey !== pipeKeyRef.current) return;
       console.error('[FFMPEG Error]', data.streamKey, data.message);
+      // Tear down fully, as a manual stop does. Otherwise the recorder keeps
+      // sending chunks, pipe-manager auto-restarts a pipe this tile now shows as
+      // off, and the next BROADCAST click starts a second recorder on this key.
+      const recorder = mediaRecorderRef.current;
+      if (recorder && recorder.state !== 'inactive') recorder.stop();
+      mediaRecorderRef.current = null;
+      ipc.send('ffmpeg-pipe-stop', { streamKey: data.streamKey });
       setIsPiping(false);
     };
     ipc.on('ffmpeg-error', handleError);

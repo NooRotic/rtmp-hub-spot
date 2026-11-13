@@ -153,9 +153,55 @@ describe('VideoFeed → FFmpeg pipe (characterization)', () => {
       act(() => emitFfmpegError({ streamKey: 'grid', message: 'grid crashed' }));
       act(() => emitFfmpegError({ streamKey: 'feed-other', message: 'other crashed' }));
       expect(stopButton()).toBeInTheDocument();
+      expect(lastRecorder.stop).not.toHaveBeenCalled();
+      expect(sent.filter((s) => s.channel === 'ffmpeg-pipe-stop')).toHaveLength(0);
 
       act(() => emitFfmpegError({ streamKey: 'feed-cam-one', message: 'ours crashed' }));
       expect(broadcastButton()).toBeInTheDocument();
+    });
+
+    it('on its own error, stops the recorder and sends a keyed pipe stop (no auto-restarted orphan)', async () => {
+      render(<VideoFeed label="Cam One" stream={mockStream} />);
+      fireEvent.click(broadcastButton());
+      await fireChunk();
+      const firstRecorder = lastRecorder;
+
+      act(() => emitFfmpegError({ streamKey: 'feed-cam-one', message: 'ours crashed' }));
+
+      expect(firstRecorder.stop).toHaveBeenCalledTimes(1);
+      const stops = sent.filter((s) => s.channel === 'ffmpeg-pipe-stop');
+      expect(stops).toHaveLength(1);
+      expect(stops[0].payload).toEqual({ streamKey: 'feed-cam-one' });
+    });
+
+    it('does not call stop() on a recorder that is already inactive', async () => {
+      render(<VideoFeed label="Cam One" stream={mockStream} />);
+      fireEvent.click(broadcastButton());
+      await fireChunk();
+      lastRecorder.state = 'inactive'; // e.g. the recorder itself errored out
+
+      act(() => emitFfmpegError({ streamKey: 'feed-cam-one', message: 'ours crashed' }));
+
+      expect(lastRecorder.stop).not.toHaveBeenCalled();
+      expect(broadcastButton()).toBeInTheDocument();
+    });
+
+    it('a BROADCAST click after its own error starts a fresh recorder and pipe', async () => {
+      render(<VideoFeed label="Cam One" stream={mockStream} />);
+      fireEvent.click(broadcastButton());
+      await fireChunk();
+      const firstRecorder = lastRecorder;
+      act(() => emitFfmpegError({ streamKey: 'feed-cam-one', message: 'ours crashed' }));
+      sent.length = 0;
+
+      fireEvent.click(broadcastButton());
+      await fireChunk();
+
+      expect(lastRecorder).not.toBe(firstRecorder);
+      expect(firstRecorder.stop).toHaveBeenCalledTimes(1); // old one stopped, not left running
+      const starts = sent.filter((s) => s.channel === 'ffmpeg-pipe-start');
+      expect(starts).toHaveLength(1);
+      expect(starts[0].payload).toMatchObject({ streamKey: 'feed-cam-one' });
     });
   });
 });
