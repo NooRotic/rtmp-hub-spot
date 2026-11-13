@@ -68,6 +68,28 @@ const GridView: React.FC<GridViewProps> = ({
   // Tear the watchdog down if the component unmounts mid-broadcast.
   useEffect(() => () => clearStallWatchdog(), []);
 
+  // Main sends every pipe's ffmpeg-error to this window (grid and each feed);
+  // only the grid's own pipe failing ends the grid broadcast. Re-subscribes when
+  // onBroadcastError changes so the handler never calls a stale callback.
+  useEffect(() => {
+    if (!ipc) return;
+    const handleError = (_: unknown, data: { streamKey?: string; message?: string }) => {
+      if (data?.streamKey !== 'grid') return;
+      // Tear down like a manual stop, so the recorder doesn't keep feeding a pipe
+      // that pipe-manager auto-restarts while the button says START. Clear the
+      // watchdog first so a later "stalled" report can't replace the real cause.
+      clearStallWatchdog();
+      const recorder = mediaRecorderRef.current;
+      if (recorder && recorder.state !== 'inactive') recorder.stop();
+      mediaRecorderRef.current = null;
+      ipc.send('ffmpeg-pipe-stop', { streamKey: 'grid' });
+      setIsPiping(false);
+      reportBroadcastError(data.message || 'FFmpeg pipe error');
+    };
+    ipc.on('ffmpeg-error', handleError);
+    return () => ipc.removeListener('ffmpeg-error', handleError);
+  }, [onBroadcastError]);
+
   useEffect(() => {
     const updateCanvasSize = () => {
       if (!canvasRef.current) return;
@@ -292,7 +314,7 @@ const GridView: React.FC<GridViewProps> = ({
     if (isPiping) {
       clearStallWatchdog();
       mediaRecorderRef.current?.stop();
-      ipc.send('ffmpeg-pipe-stop');
+      ipc.send('ffmpeg-pipe-stop', { streamKey: 'grid' }); // keyed: don't stop feed pipes
       setIsPiping(false);
     } else {
       setBroadcastError(null);

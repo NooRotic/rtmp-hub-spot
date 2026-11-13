@@ -79,19 +79,24 @@ function createPipeManager({ spawnPipe, PassThrough, buildFfmpegArgs, broadcastI
         tail.push(typeof line === 'string' ? line.trimEnd() : String(line));
         if (tail.length > stderrTailSize) tail.shift();
       },
-      onError: (err) => handleError(streamKey, err, ctx),
+      onError: (err) => handleError(streamKey, err, ctx, entry),
     });
     return entry;
   }
 
-  function handleError(streamKey, err, ctx) {
+  /** @param {object} owner - the pipes entry whose process raised this error */
+  function handleError(streamKey, err, ctx, owner) {
     const entry = pipes.get(streamKey);
     const message = (err && err.message) || String(err);
     const tail = (entry && entry.stderrTail) || [];
 
     // SIGKILL/SIGINT are expected during a user-initiated stop — not real crashes.
     if (/SIGKILL|SIGINT|killed/i.test(message)) {
-      broadcastIPC('ffmpeg-status', { state: 'stopped', streamKey: null });
+      // stop()/start() kill the old process themselves and have already removed or
+      // replaced its entry. Its late kill error must not delete or report on the
+      // pipe that now holds this key; only a kill of the live process lands here.
+      if (entry !== owner) return;
+      broadcastIPC('ffmpeg-status', { state: 'stopped', streamKey });
       pipes.delete(streamKey);
       return;
     }
@@ -108,7 +113,8 @@ function createPipeManager({ spawnPipe, PassThrough, buildFfmpegArgs, broadcastI
 
     broadcastIPC('ffmpeg-status', { state: 'error', streamKey, message });
     if (ctx && ctx.sender && !(ctx.sender.isDestroyed && ctx.sender.isDestroyed())) {
-      ctx.sender.send('ffmpeg-error', message);
+      // Keyed so each renderer listener can ignore errors from other pipes.
+      ctx.sender.send('ffmpeg-error', { streamKey, message });
     }
 
     if (!entry || entry.restartCount >= maxRestarts) {
@@ -168,7 +174,7 @@ function createPipeManager({ spawnPipe, PassThrough, buildFfmpegArgs, broadcastI
     if (entry.videoStream) entry.videoStream.end();
     if (entry.proc) entry.proc.kill();
     pipes.delete(streamKey);
-    broadcastIPC('ffmpeg-status', { state: 'stopped', streamKey: null });
+    broadcastIPC('ffmpeg-status', { state: 'stopped', streamKey });
   }
 
   /** Stop every running pipe (used for the legacy no-streamKey stop and on quit). */

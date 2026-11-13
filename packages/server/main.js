@@ -623,7 +623,7 @@ ipcMain.on('ffmpeg-pipe-chunk', (event, { chunk, streamKey } = {}) => {
 });
 
 // Backward-compatible stop: a streamKey stops that one pipe; no key stops all.
-// (The current renderer sends no key; the redesigned UI will send a streamKey.)
+// (GridView and VideoFeed send their streamKey; no key is the legacy fallback.)
 ipcMain.on('ffmpeg-pipe-stop', (event, data = {}) => {
   if (data && data.streamKey) {
     pipeManager.stop(data.streamKey);

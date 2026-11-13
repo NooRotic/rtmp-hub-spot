@@ -106,6 +106,77 @@ describe('pipe-manager', () => {
     expect(manager.size()).toBe(0);
   });
 
+  it('sends ffmpeg-error to the renderer keyed by the failing pipe\'s streamKey', () => {
+    const { manager, spawned } = makeManager();
+    const sender = { send: vi.fn(), isDestroyed: () => false };
+    manager.start({ streamKey: 'grid', hwAccel: 'none' }, { sender });
+    manager.start({ streamKey: 'feed-alice', hwAccel: 'none' }, { sender });
+
+    spawned[1].handlers.onError(new Error('ffmpeg exited with code 1'));
+
+    const errors = sender.send.mock.calls.filter(([channel]) => channel === 'ffmpeg-error');
+    expect(errors).toHaveLength(1);
+    // Keyed so a grid tile / other feed tiles can ignore it (was a bare message string).
+    expect(errors[0][1]).toEqual({ streamKey: 'feed-alice', message: 'ffmpeg exited with code 1' });
+
+    manager.stopAll(); // clears the pending auto-restart timer
+  });
+
+  describe("'stopped' status is keyed and only reported for the live process", () => {
+    const stoppedFor = (broadcasts) =>
+      broadcasts
+        .filter((b) => b.channel === 'ffmpeg-status' && b.data.state === 'stopped')
+        .map((b) => b.data.streamKey);
+    const SIGKILL = () => new Error('ffmpeg was killed with signal SIGKILL');
+
+    it('stop(key) reports that key as stopped (was streamKey: null)', () => {
+      const { manager, broadcasts } = makeManager();
+      manager.start({ streamKey: 'grid', hwAccel: 'none' });
+      manager.start({ streamKey: 'feed-alice', hwAccel: 'none' });
+
+      manager.stop('feed-alice');
+
+      expect(stoppedFor(broadcasts)).toEqual(['feed-alice']);
+    });
+
+    it('an unexpected kill of the live process reports that key as stopped and removes it', () => {
+      const { manager, spawned, broadcasts } = makeManager();
+      manager.start({ streamKey: 'grid', hwAccel: 'none' });
+
+      spawned[0].handlers.onError(SIGKILL());
+
+      expect(stoppedFor(broadcasts)).toEqual(['grid']);
+      expect(manager.has('grid')).toBe(false);
+    });
+
+    it('the late SIGKILL from a stop() is not reported a second time', () => {
+      const { manager, spawned, broadcasts } = makeManager();
+      manager.start({ streamKey: 'grid', hwAccel: 'none' });
+
+      manager.stop('grid');
+      spawned[0].handlers.onError(SIGKILL()); // fluent-ffmpeg reports the kill afterwards
+
+      expect(stoppedFor(broadcasts)).toEqual(['grid']);
+    });
+
+    it('the late SIGKILL from a replaced process neither removes nor reports the new pipe', async () => {
+      const { manager, spawned, broadcasts } = makeManager();
+      manager.start({ streamKey: 'grid', hwAccel: 'none' });
+      manager.start({ streamKey: 'grid', hwAccel: 'nvidia' }); // replaces + kills spawned[0]
+
+      spawned[0].handlers.onError(SIGKILL());
+
+      expect(manager.has('grid')).toBe(true);
+      expect(stoppedFor(broadcasts)).toEqual([]);
+      // chunks still reach the replacement pipe instead of being dropped
+      const got = [];
+      spawned[1].videoStream.on('data', (b) => got.push(b));
+      manager.writeChunk('grid', new Uint8Array([7]));
+      await new Promise((r) => setImmediate(r));
+      expect(Buffer.concat(got)).toEqual(Buffer.from([7]));
+    });
+  });
+
   describe('observability — failures are LOUD (logged), not silent', () => {
     it('log.error()s the ffmpeg error message AND the captured stderr tail on a crash', () => {
       const { manager, spawned, log } = makeManager();
