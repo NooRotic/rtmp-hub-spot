@@ -2,7 +2,7 @@
 
 **Supersedes:** `002-refactor-adminapp-summary.md` (kept for history; do not execute 002 as written).
 **Target:** `packages/client/src/AdminApp.tsx` (618 lines).
-**Status:** Phase 0 = in progress (this PR). Phases 1–3 = TODO, each its own PR.
+**Status:** Phases 0–3 shipped in PR #14 (`refactor/adminapp`, merged as `7203182`).
 **Author note:** every claim below was verified against the code on `main` (node v22.22.3, npm 10.9.8).
 
 ---
