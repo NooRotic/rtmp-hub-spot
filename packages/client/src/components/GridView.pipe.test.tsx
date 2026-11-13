@@ -52,9 +52,22 @@ const fireChunk = (size = 2048) =>
   lastRecorder.ondataavailable({ data: { size, arrayBuffer: async () => new ArrayBuffer(size) } });
 
 const startButton = () => screen.getByRole('button', { name: /start grid broadcast/i });
+const stopButton = () => screen.getByRole('button', { name: /stop grid broadcast/i });
+
+/** Deliver an ffmpeg-error to the handler the mounted GridView registered. */
+const emitFfmpegError = (payload: { streamKey: string; message: string }) => {
+  const on = (window as any).electron.ipcRenderer.on as ReturnType<typeof vi.fn>;
+  const calls = on.mock.calls.filter((c: any[]) => c[0] === 'ffmpeg-error');
+  const handler = calls[calls.length - 1][1];
+  handler(null, payload);
+};
 
 describe('GridView → FFmpeg pipe (characterization)', () => {
-  beforeEach(() => { sent.length = 0; lastRecorder = null; });
+  beforeEach(() => {
+    sent.length = 0;
+    lastRecorder = null;
+    (window as any).electron.ipcRenderer.on.mockClear();
+  });
   afterEach(cleanup);
 
   it('shows the broadcast toggle in Electron mode', () => {
@@ -133,5 +146,76 @@ describe('GridView → FFmpeg pipe (characterization)', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  describe('ffmpeg-error is scoped to the grid pipe', () => {
+    it("ignores a feed pipe's error: keeps broadcasting, no stop, no banner", async () => {
+      const onBroadcastError = vi.fn();
+      const { container } = render(<GridView streams={[]} onBroadcastError={onBroadcastError} />);
+      fireEvent.click(startButton());
+      await fireChunk();
+
+      act(() => emitFfmpegError({ streamKey: 'feed-cam-one', message: 'feed crashed' }));
+
+      expect(stopButton()).toBeInTheDocument();
+      expect(lastRecorder.stop).not.toHaveBeenCalled();
+      expect(sent.filter((s) => s.channel === 'ffmpeg-pipe-stop')).toHaveLength(0);
+      expect(onBroadcastError).not.toHaveBeenCalled();
+      expect(container.querySelector('[data-testid="broadcast-error"]')).toBeNull();
+    });
+
+    it('on the grid pipe error: stops recorder + pipe, flips to START, shows the cause', async () => {
+      const onBroadcastError = vi.fn();
+      const { container } = render(<GridView streams={[]} onBroadcastError={onBroadcastError} />);
+      fireEvent.click(startButton());
+      await fireChunk();
+      const recorder = lastRecorder;
+
+      act(() => emitFfmpegError({ streamKey: 'grid', message: 'ffmpeg exited with code 1' }));
+
+      expect(startButton()).toBeInTheDocument();
+      expect(recorder.stop).toHaveBeenCalledTimes(1);
+      const stops = sent.filter((s) => s.channel === 'ffmpeg-pipe-stop');
+      expect(stops).toHaveLength(1);
+      expect(stops[0].payload).toEqual({ streamKey: 'grid' });
+      expect(onBroadcastError).toHaveBeenCalledWith('ffmpeg exited with code 1');
+      const banner = container.querySelector('[data-testid="broadcast-error"]');
+      expect(banner?.textContent).toMatch(/ffmpeg exited with code 1/);
+    });
+
+    it('clears the stall watchdog so a later "stalled" report cannot replace the real cause', async () => {
+      vi.useFakeTimers();
+      try {
+        const onBroadcastError = vi.fn();
+        const { container } = render(<GridView streams={[]} onBroadcastError={onBroadcastError} />);
+        fireEvent.click(startButton());
+
+        act(() => emitFfmpegError({ streamKey: 'grid', message: 'ffmpeg exited with code 1' }));
+        await act(async () => { await vi.advanceTimersByTimeAsync(4000); }); // past the 3s stall threshold
+
+        expect(onBroadcastError).toHaveBeenCalledTimes(1);
+        expect(onBroadcastError).toHaveBeenCalledWith('ffmpeg exited with code 1');
+        const banner = container.querySelector('[data-testid="broadcast-error"]');
+        expect(banner?.textContent).not.toMatch(/stall/i);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('a START click after the error clears the banner and starts a fresh recorder', async () => {
+      const { container } = render(<GridView streams={[]} />);
+      fireEvent.click(startButton());
+      await fireChunk();
+      const firstRecorder = lastRecorder;
+      act(() => emitFfmpegError({ streamKey: 'grid', message: 'ffmpeg exited with code 1' }));
+      sent.length = 0;
+
+      fireEvent.click(startButton());
+      await fireChunk();
+
+      expect(lastRecorder).not.toBe(firstRecorder);
+      expect(container.querySelector('[data-testid="broadcast-error"]')).toBeNull();
+      expect(sent.filter((s) => s.channel === 'ffmpeg-pipe-start')).toHaveLength(1);
+    });
   });
 });
